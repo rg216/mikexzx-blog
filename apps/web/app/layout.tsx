@@ -1,9 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { SiteFooter } from "@/components/SiteFooter";
-import { SiteHeader } from "@/components/SiteHeader";
 import { site } from "@/lib/site";
-import styles from "./layout.module.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -30,11 +27,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <a href="#main" className="skip-link">
           跳到正文
         </a>
-        <SiteHeader />
-        <main id="main" className={styles.main}>
-          {children}
-        </main>
-        <SiteFooter />
+        {/* 导航栏和 <main id="main"> 由各自的布局提供：前台见 (site)/layout.tsx，后台见 admin/layout.tsx */}
+        {children}
       </body>
     </html>
   );

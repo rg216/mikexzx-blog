@@ -11,6 +11,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - `packages/shared`：zod schema 与类型，前后端共用；API 的输入输出一律以此为准
 
 前后端通过 HTTP 显式通信。前端不用 Server Actions 直连数据库，页面数据通过调用 `apps/api` 获取。
+浏览器访问 API 一律走前端的 `/api/*`（`next.config.ts` 的 rewrites 代理到 API）：保证 session cookie 是第一方的、Passkey 在前端源下完成；服务端渲染取数据直连 `API_URL`。
 
 基础设施：PostgreSQL、Redis（阅读计数、限流）、S3 兼容对象存储（图片，预签名 URL 上传）。本地全部用 Docker Compose 运行。
 
@@ -30,12 +31,13 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - Next.js 16 的 API 与旧版差异大：写 Next 相关代码前先查与安装版本一致的文档 `apps/web/node_modules/next/dist/docs/`
 
 ## 常用命令（在仓库根目录执行）
-- 首次：`bun install`（isolated linker，见 `bunfig.toml`）；`cp apps/api/.env.example apps/api/.env` 并填 `ADMIN_TOKEN`
+- 首次：`bun install`（isolated linker，见 `bunfig.toml`）；`cp apps/api/.env.example apps/api/.env`，填 `ADMIN_SETUP_TOKEN` 后打开 http://localhost:3000/admin/login 注册第一个 Passkey
 - `docker compose up -d`：本地 PostgreSQL 18（开发库 `blog`，测试库 `blog_test`）
 - `bun run db:migrate` / `db:seed`：迁移本地库 / 写入初始文章；改了 `schema.ts` 后 `bun run db:generate` 生成迁移
 - `bun run dev`：同时启动 API（:8787）和前端（:3000）
 - `bun run build`：构建前端（构建时会请求 API，需要 API 在运行）
 - `bun run test` / `lint` / `typecheck`：对所有 workspace 执行（API 测试连 `blog_test`，需要 Postgres 在运行）
+- 前端目录：`app/(site)/` 前台（SiteShell：导航 + 页脚）；`app/admin/login` 登录页；`app/admin/(panel)/` 需登录的后台（AdminNav + SessionGate）
 
 ## API 约定
 - API 用 Node 24 原生 type stripping 直接运行 TS：相对导入写 `.ts` 扩展名，只用可擦除语法（无 enum、参数属性等）
@@ -63,14 +65,19 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 可点击区域 ≥ 44×44px，焦点样式可见，语义化 HTML，对比度达标
 
 ## 数据模型（初稿）
-- `users`
+- `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`
 - `posts`：slug, title, content_md, status (draft | published), published_at
 - `tags` + `post_tags`
 - `comments`：post_id, user_id, parent_id（楼中楼）, body, status（审核）
 - `post_views`
 
 ## 安全
-- 管理员登录：自己实现 session（argon2 哈希、httpOnly + SameSite cookie、CSRF 防护、过期机制）
+- 管理员登录：只用 Passkey（WebAuthn），没有密码；协议验证用 SimpleWebAuthn，其余自己实现
+  - session：随机 token，库里只存 SHA-256；cookie `__Host-session`（httpOnly、Secure、SameSite=Lax）；闲置 7 天 / 最长 30 天过期；登录总是签发新 session
+  - CSRF：SameSite=Lax + 所有写请求校验 `Origin` 必须等于 `WEB_ORIGIN`
+  - challenge 一次性、5 分钟过期（DELETE … RETURNING 原子取出）；要求用户验证（UV）与可发现凭证
+  - 首次设置 / 全部设备丢失后的恢复：临时设置 `ADMIN_SETUP_TOKEN` 允许未登录注册 Passkey，用完立即删除；不能删除最后一个 Passkey
+  - Passkey 绑定 RP ID（前端域名）：换域名需要重新注册
 - 评论者：GitHub OAuth
 - 用户提交的 Markdown 渲染前必须 sanitize
 - 写接口加限流

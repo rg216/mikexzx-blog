@@ -1,0 +1,9 @@
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: 40vh;
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}

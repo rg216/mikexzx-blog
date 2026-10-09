@@ -2,28 +2,38 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
+import type { AuthConfig } from "./auth/config.ts";
+import { simpleWebAuthn, type WebAuthn } from "./auth/webauthn.ts";
 import type { Db } from "./db/client.ts";
 import { errorBody, HttpError, pgErrorCode } from "./lib/errors.ts";
+import { type AuthEnv, loadSession, requireSameOrigin } from "./middleware/auth.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { authRoutes } from "./routes/auth.ts";
 import { publicRoutes } from "./routes/public.ts";
 
 type AppOptions = {
   db: Db;
-  adminToken: string;
+  auth: AuthConfig;
+  /** 测试时替换成假实现；默认用 SimpleWebAuthn */
+  webauthn?: WebAuthn;
   /** 测试里关掉，避免刷屏 */
   logRequests?: boolean;
 };
 
 /** 组装应用。依赖从外面传入（而不是在模块里直接连库），测试时可以换成测试库。 */
-export function createApp({ db, adminToken, logRequests = false }: AppOptions) {
-  const app = new Hono();
+export function createApp({ db, auth, webauthn = simpleWebAuthn, logRequests = false }: AppOptions) {
+  const app = new Hono<AuthEnv>();
 
   if (logRequests) app.use(logger());
   app.use(secureHeaders());
+  // 所有写请求先校验 Origin（CSRF），再加载 session
+  app.use(requireSameOrigin(auth));
+  app.use(loadSession(db, auth));
 
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/", publicRoutes(db));
-  app.route("/admin", adminRoutes(db, adminToken));
+  app.route("/auth", authRoutes(db, auth, webauthn));
+  app.route("/admin", adminRoutes(db));
 
   app.notFound((c) => c.json(errorBody("not_found", "接口不存在"), 404));
 

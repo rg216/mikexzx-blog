@@ -98,7 +98,7 @@ export type PostUpdateInput = z.input<typeof postUpdateInputSchema>;
 
 export const apiErrorSchema = z.object({
   error: z.object({
-    code: z.enum(["validation_error", "unauthorized", "not_found", "conflict", "internal_error"]),
+    code: z.enum(["validation_error", "unauthorized", "forbidden", "not_found", "conflict", "internal_error"]),
     message: z.string(),
     /** 校验错误的明细，字段路径 + 原因 */
     issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),

@@ -1,0 +1,67 @@
+/* 登录卡片：居中、窄，正文区干净（不用毛玻璃） */
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: var(--login-card-width);
+  margin-inline: auto;
+  padding: var(--space-4) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--color-secondary-grouped-background);
+}
+
+/* 加载中只有一行：居中对齐 */
+.card[role="status"] {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.title {
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-bold);
+}
+
+.description {
+  margin-top: var(--space-1);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+  line-height: var(--line-height-body);
+}
+
+.description code {
+  font-family: var(--font-family-mono);
+  font-size: 0.9em;
+}
+
+.muted {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.banner {
+  margin-top: var(--space-2);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+
+.wide {
+  width: 100%;
+  margin-top: var(--space-3);
+}
+
+/* 表单里第一个按钮紧跟输入框，不再额外留白 */
+.fields + .wide {
+  margin-top: 0;
+}
+
+.switch {
+  align-self: center;
+}

@@ -1,24 +1,35 @@
 import { adminPostSchema } from "@blog/shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ADMIN_TOKEN, setupTestApp } from "./helpers.ts";
+import { setupTestApp, WEB_ORIGIN } from "./helpers.ts";
 
-const { app, request, createPost } = setupTestApp();
+const { app, request, createPost, adminSessionCookie } = setupTestApp();
 
 describe("authentication", () => {
-  it.each([
-    ["no token", null],
-    ["a wrong token", "wrong-token"],
-  ])("rejects requests with %s", async (_name, token) => {
-    const res = await request("GET", "/admin/posts", { token });
+  it("rejects requests without a session", async () => {
+    const res = await request("GET", "/admin/posts", { auth: false });
     expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toContain("Bearer");
     expect(res.body).toMatchObject({ error: { code: "unauthorized" } });
   });
 
-  it("rejects writes without a token before touching the database", async () => {
-    const res = await request("POST", "/admin/posts", { token: null, body: { slug: "x", title: "x", contentMd: "" } });
+  it("rejects an unknown session cookie", async () => {
+    const res = await request("GET", "/admin/posts", { auth: false, headers: { cookie: "__Host-session=forged" } });
     expect(res.status).toBe(401);
+  });
+
+  it("rejects writes without a session before touching the database", async () => {
+    const res = await request("POST", "/admin/posts", { auth: false, body: { slug: "x", title: "x", contentMd: "" } });
+    expect(res.status).toBe(401);
+    expect((await request("GET", "/admin/posts")).body).toEqual([]);
+  });
+
+  it.each([
+    ["no Origin header", null],
+    ["a cross-site Origin", "https://evil.example"],
+  ])("rejects writes with %s (CSRF)", async (_name, origin) => {
+    const res = await request("POST", "/admin/posts", { origin, body: { slug: "x", title: "x", contentMd: "" } });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: { code: "forbidden" } });
     expect((await request("GET", "/admin/posts")).body).toEqual([]);
   });
 });
@@ -161,7 +172,7 @@ describe("GET / DELETE /admin/posts/:id", () => {
     expect(res.body).toBeNull();
     expect((await request("GET", `/admin/posts/${id}`)).status).toBe(404);
     expect((await request("DELETE", `/admin/posts/${id}`)).status).toBe(404);
-    expect((await request("GET", "/tags", { token: null })).body).toEqual([]);
+    expect((await request("GET", "/tags", { auth: false })).body).toEqual([]);
   });
 
   it.each([["abc"], ["0"], ["-1"], ["1.5"], ["99999999999"]])("rejects id %s with 400", async (id) => {
@@ -170,10 +181,10 @@ describe("GET / DELETE /admin/posts/:id", () => {
 });
 
 /** 发送原始请求体（用来测试畸形 JSON，request() 会自动 JSON.stringify） */
-function fetchRaw(method: string, path: string, rawBody: string) {
+async function fetchRaw(method: string, path: string, rawBody: string) {
   return app.request(path, {
     method,
-    headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "content-type": "application/json" },
+    headers: { cookie: await adminSessionCookie(), origin: WEB_ORIGIN, "content-type": "application/json" },
     body: rawBody,
   });
 }

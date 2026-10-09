@@ -11,7 +11,7 @@ describe("GET /posts", () => {
     await createPost({ slug: "draft", status: "draft" });
     await createPost({ slug: "new", status: "published", publishedAt: "2026-02-01T00:00:00Z" });
 
-    const res = await request("GET", "/posts", { token: null });
+    const res = await request("GET", "/posts", { auth: false });
     expect(res.status).toBe(200);
     const page = postSummaryPageSchema.parse(res.body);
     expect(page.items.map((p) => p.slug)).toEqual(["new", "old"]);
@@ -35,7 +35,7 @@ describe("GET /posts", () => {
     let cursor: string | null = null;
     do {
       const query: string = cursor ? `?limit=2&cursor=${cursor}` : "?limit=2";
-      const page = postSummaryPageSchema.parse((await request("GET", `/posts${query}`, { token: null })).body);
+      const page = postSummaryPageSchema.parse((await request("GET", `/posts${query}`, { auth: false })).body);
       seen.push(...page.items.map((p) => p.slug));
       cursor = page.nextCursor;
     } while (cursor);
@@ -44,7 +44,7 @@ describe("GET /posts", () => {
   });
 
   it.each([["?limit=0"], ["?limit=51"], ["?limit=abc"], ["?cursor=not-a-cursor"]])("rejects %s with 400", async (query) => {
-    const res = await request("GET", `/posts${query}`, { token: null });
+    const res = await request("GET", `/posts${query}`, { auth: false });
     expect(res.status).toBe(400);
     expect(res.body).toMatchObject({ error: { code: "validation_error" } });
   });
@@ -62,7 +62,7 @@ describe("GET /posts/:slug", () => {
       ],
     });
 
-    const res = await request("GET", "/posts/hello", { token: null });
+    const res = await request("GET", "/posts/hello", { auth: false });
     expect(res.status).toBe(200);
     const post = postSchema.parse(res.body);
     expect(post.contentMd).toBe("第一段。\n\n第二段。");
@@ -76,7 +76,7 @@ describe("GET /posts/:slug", () => {
     ["an invalid slug", "Not_A_Slug"],
   ])("returns 404 for %s", async (_name, slug) => {
     await createPost({ slug: "secret", status: "draft" });
-    const res = await request("GET", `/posts/${slug}`, { token: null });
+    const res = await request("GET", `/posts/${slug}`, { auth: false });
     expect(res.status).toBe(404);
     expect(res.body).toMatchObject({ error: { code: "not_found" } });
   });
@@ -90,7 +90,7 @@ describe("GET /tags", () => {
     await createPost({ slug: "p2", status: "published", tags: [fullstack] });
     await createPost({ slug: "d1", status: "draft", tags: [fullstack, { slug: "secret", name: "秘密" }] });
 
-    const res = await request("GET", "/tags", { token: null });
+    const res = await request("GET", "/tags", { auth: false });
     expect(z.array(tagWithCountSchema).parse(res.body)).toEqual([
       { ...fullstack, count: 2 },
       { ...design, count: 1 },
@@ -100,13 +100,13 @@ describe("GET /tags", () => {
 
 describe("misc", () => {
   it("returns a JSON 404 for unknown routes", async () => {
-    const res = await request("GET", "/nope", { token: null });
+    const res = await request("GET", "/nope", { auth: false });
     expect(res.status).toBe(404);
     expect(res.body).toMatchObject({ error: { code: "not_found" } });
   });
 
   it("sets security headers", async () => {
-    const res = await request("GET", "/health", { token: null });
+    const res = await request("GET", "/health", { auth: false });
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
 });

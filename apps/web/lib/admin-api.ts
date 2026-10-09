@@ -14,7 +14,7 @@ import { z } from "zod";
  *
  * 和 lib/api.ts 的区别：
  *   - 走同源路径 /api/admin/...，由 Next rewrites 代理到 apps/api（v2a 配置）。
- *     同源的好处：session cookie 可以设成 httpOnly + SameSite=Strict，浏览器自动带上，JS 读不到；
+ *     同源的好处：session cookie 可以设成 httpOnly + SameSite=Lax 的第一方 cookie，浏览器自动带上，JS 读不到；
  *     也不用处理 CORS 预检。
  *   - 写操作的失败是"正常情况"（校验失败、slug 冲突），所以错误要带上结构化信息给表单用，
  *     而不是像构建期那样直接抛一个字符串。
@@ -50,6 +50,7 @@ export class AdminApiError extends Error {
 function codeForStatus(status: number): AdminApiErrorCode {
   if (status === 400 || status === 422) return "validation_error";
   if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
   if (status === 409) return "conflict";
   return "internal_error";
@@ -58,6 +59,7 @@ function codeForStatus(status: number): AdminApiErrorCode {
 const fallbackMessages: Record<AdminApiErrorCode, string> = {
   validation_error: "提交的内容有误",
   unauthorized: "登录已过期，请重新登录",
+  forbidden: "请求被拒绝，请刷新页面后重试",
   not_found: "文章不存在",
   conflict: "与已有数据冲突",
   internal_error: "服务器出错了，请稍后重试",
@@ -76,7 +78,7 @@ export function toAdminApiError(status: number, body: unknown): AdminApiError {
   return new AdminApiError(status, code, fallbackMessages[code]);
 }
 
-type AdminApiOptions = {
+type JsonClientOptions = {
   /** 默认用全局 fetch；测试时注入假的 */
   fetch?: typeof fetch;
   /** 收到 401 时调用。默认跳到登录页，登录后回到当前页面 */
@@ -86,7 +88,7 @@ type AdminApiOptions = {
 
 export const LOGIN_PATH = "/admin/login";
 
-function redirectToLogin(): void {
+export function redirectToLogin(): void {
   const next = `${window.location.pathname}${window.location.search}`;
   // 故意用整页跳转而不是 router.push：这里在 React 之外拿不到 router；
   // 而且 session 失效后页面上的状态都不可信了，干净地重新加载更稳妥
@@ -96,7 +98,11 @@ function redirectToLogin(): void {
 
 const postListSchema = z.array(adminPostSchema);
 
-export function createAdminApi({ fetch: fetchImpl = (...args) => fetch(...args), onUnauthorized = redirectToLogin, basePath = "/api/admin" }: AdminApiOptions = {}) {
+/**
+ * 后台各接口共用的 JSON 客户端：发请求、把错误响应转成 AdminApiError、用 schema 校验响应。
+ * 管理文章（createAdminApi）和登录 / Passkey（lib/auth-api.ts）都基于它。
+ */
+export function createJsonClient({ fetch: fetchImpl = (...args) => fetch(...args), onUnauthorized = redirectToLogin, basePath = "/api/admin" }: JsonClientOptions = {}) {
   async function request(method: string, path: string, body?: unknown): Promise<Response> {
     const init: RequestInit = {
       method,
@@ -129,6 +135,12 @@ export function createAdminApi({ fetch: fetchImpl = (...args) => fetch(...args),
     }
     return parsed.data;
   }
+
+  return { request, parseJson };
+}
+
+export function createAdminApi(options: JsonClientOptions = {}) {
+  const { request, parseJson } = createJsonClient(options);
 
   return {
     /** 全部文章（含草稿），按更新时间倒序 */

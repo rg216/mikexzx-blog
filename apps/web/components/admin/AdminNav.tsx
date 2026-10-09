@@ -7,7 +7,7 @@ import styles from "./AdminNav.module.css";
 
 /**
  * 管理后台的导航栏（吸顶 + 毛玻璃，和前台 SiteHeader 同一套样式和高度）。
- * 由 app/admin/layout.tsx 接入；actions 留给登录态相关的操作（如"退出登录"按钮）。
+ * 由 app/admin/(panel)/layout.tsx 接入；actions 放登录态相关的操作（"退出登录"按钮）。
  */
 export function AdminNav({ actions }: { actions?: ReactNode }) {
   return (
@@ -21,6 +21,9 @@ export function AdminNav({ actions }: { actions?: ReactNode }) {
           <ul className={styles.links}>
             <li>
               <NavLink href="/admin/posts">文章</NavLink>
+            </li>
+            <li>
+              <NavLink href="/admin/settings">设置</NavLink>
             </li>
             <li>
               {/* 回前台：新标签页打开，后台的编辑状态不受影响 */}

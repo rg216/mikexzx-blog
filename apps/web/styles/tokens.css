@@ -273,6 +273,7 @@
   --admin-toolbar-height: 3.75rem; /* 60：44 的按钮 + 上下各 8 */
   --admin-list-width: 60rem; /* 960：文章列表的最大宽度 */
   --admin-dialog-width: 25rem; /* 400 */
+  --login-card-width: 25rem; /* 400：登录卡片，与对话框同宽 */
   --editor-min-height: 24rem; /* 384：编辑 / 预览区的最小高度 */
 }
 

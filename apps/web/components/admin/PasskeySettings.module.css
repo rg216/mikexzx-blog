@@ -1,0 +1,134 @@
+/* 和文章列表一样在主栏里居中，后台各页面左边缘对齐 */
+.page {
+  max-width: var(--content-width);
+  margin-inline: auto;
+}
+
+.title {
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-large-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.section + .section {
+  margin-top: var(--space-6);
+}
+
+.sectionTitle {
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-bold);
+}
+
+.sectionHint {
+  margin-block: var(--space-1) var(--space-2);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.inlineIcon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: var(--space-0-5);
+  vertical-align: -0.125em;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
+  color: var(--color-secondary-label);
+}
+
+/* iOS 分组列表：圆角卡片，条目之间是缩进的分隔线 */
+.list {
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-secondary-background);
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-1-5);
+  padding: var(--space-1-5) var(--space-2);
+}
+
+.item + .item {
+  border-top: 0.5px solid var(--color-separator);
+}
+
+.icon {
+  display: inline-flex;
+  color: var(--color-accent);
+}
+
+.icon svg {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.info {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.name {
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+}
+
+.actions {
+  display: flex;
+  margin-right: calc(-1 * var(--space-1));
+}
+
+.renameForm {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.renameField {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.renameActions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.addForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+  margin-top: var(--space-3);
+}
+
+.addField {
+  flex: 1;
+  min-width: 14rem;
+}
+
+/* 按钮和输入框顶部对齐：跳过 label 的高度 */
+.addButton {
+  margin-top: calc(var(--font-size-subhead) * var(--line-height-body) + var(--space-0-5));
+}
+
+.addError {
+  margin-top: var(--space-2);
+}

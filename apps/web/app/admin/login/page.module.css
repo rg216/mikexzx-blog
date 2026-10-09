@@ -1,0 +1,21 @@
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding-block: calc(env(safe-area-inset-top) + var(--space-6)) calc(var(--inset-bottom) + var(--space-6));
+  padding-inline: var(--inset-left) var(--inset-right);
+  background: var(--color-grouped-background);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-target);
+  color: var(--color-label);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}

@@ -4,14 +4,14 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { HttpError } from "../lib/errors.ts";
 import { validate } from "../lib/validate.ts";
-import { adminAuth } from "../middleware/admin-auth.ts";
+import { type AuthEnv, requireSession } from "../middleware/auth.ts";
 import { createPost, deletePost, getPostById, listAllPosts, updatePost } from "../services/posts.ts";
 
 const idParam = z.object({ id: z.coerce.number().int().positive().max(2_147_483_647) });
 
-export function adminRoutes(db: Db, adminToken: string) {
-  return new Hono()
-    .use(adminAuth(adminToken))
+export function adminRoutes(db: Db) {
+  return new Hono<AuthEnv>()
+    .use(requireSession)
     .get("/posts", async (c) => c.json(await listAllPosts(db)))
     .get("/posts/:id", validate("param", idParam), async (c) => {
       const post = await getPostById(db, c.req.valid("param").id);

@@ -1,9 +1,11 @@
 // Vercel 的 Hono 构建器只认"入口文件自己 import 了 hono"，不会顺着 import 链去找，
 // 所以这里直接导入 Hono（下面用 satisfies 校验导出的确实是 Hono 实例）。
 import { Hono } from "hono";
+import { createAuthConfig } from "./auth/config.ts";
 import { createApp } from "./create-app.ts";
 import { createDb } from "./db/client.ts";
 import { loadEnv } from "./env.ts";
+import type { AuthEnv } from "./middleware/auth.ts";
 
 /*
  * 生产入口：读环境变量、连数据库、默认导出 Hono app。
@@ -14,5 +16,9 @@ import { loadEnv } from "./env.ts";
 const env = loadEnv();
 export const { db, pool } = createDb(env.DATABASE_URL);
 
-const app = createApp({ db, adminToken: env.ADMIN_TOKEN, logRequests: true }) satisfies Hono;
+const app = createApp({
+  db,
+  auth: createAuthConfig({ webOrigin: env.WEB_ORIGIN, setupToken: env.ADMIN_SETUP_TOKEN }),
+  logRequests: true,
+}) satisfies Hono<AuthEnv>;
 export default app;
