@@ -1,0 +1,17 @@
+.link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--hit-target);
+  min-height: var(--hit-target);
+  padding-inline: var(--space-1-5);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.link:hover,
+.link[aria-current="page"] {
+  color: var(--color-label);
+}

@@ -1,0 +1,21 @@
+{
+  "name": "mikexxz-blog",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter @blog/web dev",
+    "build": "bun run --filter @blog/web build",
+    "start": "bun run --filter @blog/web start",
+    "lint": "bun run --filter '*' lint",
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test"
+  }
+}

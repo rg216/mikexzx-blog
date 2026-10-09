@@ -1,0 +1,13 @@
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: 0;
+  list-style: none;
+}
+
+.tag::before {
+  content: "#";
+  content: "#" / ""; /* 斜杠后是替代文本：空字符串让读屏软件跳过这个装饰性的 # */
+  color: var(--color-tertiary-label);
+}

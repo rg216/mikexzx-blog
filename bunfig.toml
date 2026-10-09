@@ -1,0 +1,4 @@
+[install]
+# 隔离安装（类似 pnpm）：每个包只能 import 自己 package.json 里声明的依赖，
+# 避免"幽灵依赖"——本地碰巧能跑、部署时才发现漏声明。
+linker = "isolated"

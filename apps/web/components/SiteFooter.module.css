@@ -1,0 +1,12 @@
+.footer {
+  border-top: 0.5px solid var(--color-separator);
+  padding-bottom: var(--inset-bottom);
+}
+
+.inner {
+  max-width: calc(var(--content-width) + var(--inset-left) + var(--inset-right));
+  margin-inline: auto;
+  padding: var(--space-3) var(--inset-right) var(--space-3) var(--inset-left);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}

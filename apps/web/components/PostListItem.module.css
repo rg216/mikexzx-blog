@@ -1,0 +1,75 @@
+.card {
+  position: relative;
+  /* 负外边距 + 等量内边距：悬停高亮的背景向两侧"出血"，文字仍和标题栏对齐 */
+  margin-inline: calc(-1 * var(--space-2));
+  margin-block: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-spring) var(--ease-spring);
+}
+
+@media (hover: hover) {
+  .card:hover {
+    background-color: var(--color-fill);
+  }
+}
+
+/* 按下时轻微缩小，松手时由弹簧曲线回弹——模仿 iOS 列表的按压反馈 */
+.card:active {
+  transform: scale(0.98);
+}
+
+.title {
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+.link {
+  color: var(--color-label);
+  text-decoration: none;
+}
+
+.link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+/* 焦点环画在整张卡片（::after）上，而不是只框住标题文字 */
+.link:focus-visible {
+  outline: none;
+}
+
+.link:focus-visible::after {
+  outline: 2px solid var(--color-accent);
+  /* 向内收：卡片在手机上贴着屏幕边缘，向外偏移的焦点环会被切掉 */
+  outline-offset: -2px;
+  border-radius: var(--radius-lg);
+}
+
+.excerpt {
+  display: -webkit-box;
+  margin-top: var(--space-0-5);
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+  line-height: var(--line-height-body);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-1-5);
+  row-gap: var(--space-0-5);
+  margin-top: var(--space-1);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}

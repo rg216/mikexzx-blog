@@ -1,0 +1,28 @@
+.header {
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  font-size: var(--font-size-large-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.subtitle {
+  margin-top: var(--space-1);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.empty {
+  color: var(--color-secondary-label);
+}
+
+.list {
+  padding: 0;
+  list-style: none;
+}
+
+/* 分隔线画在条目之间，而不是每条底部，首尾都不会多出一条线 */
+.item + .item {
+  border-top: 0.5px solid var(--color-separator);
+}

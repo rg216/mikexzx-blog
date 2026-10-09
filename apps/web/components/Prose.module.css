@@ -1,0 +1,163 @@
+/*
+ * Markdown 正文排版。正文区保持干净：不用毛玻璃、阴影等装饰。
+ * 用 .prose 后代选择器而不是给每个元素加 class，因为 HTML 来自 Markdown 渲染，没法加 class。
+ */
+.prose {
+  overflow-wrap: break-word;
+}
+
+/* 块级元素之间统一用上外边距隔开（"猫头鹰选择器"），第一个元素顶部不留白 */
+.prose > * + * {
+  margin-top: var(--space-2);
+}
+
+.prose h2 {
+  margin-top: var(--space-5);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-bold);
+}
+
+.prose h3 {
+  margin-top: var(--space-4);
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+}
+
+.prose h4 {
+  margin-top: var(--space-3);
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 标题和紧跟其后的内容靠得更近，形成分组 */
+.prose :is(h2, h3, h4) + * {
+  margin-top: var(--space-1-5);
+}
+
+.prose strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: var(--space-3);
+}
+
+.prose li + li,
+.prose li > :is(ul, ol) {
+  margin-top: var(--space-0-5);
+}
+
+.prose li::marker {
+  color: var(--color-secondary-label);
+}
+
+/* GFM 任务列表 */
+.prose :global(.contains-task-list) {
+  padding-left: 0;
+  list-style: none;
+}
+
+/* 悬挂缩进：复选框挂在左侧，换行后的文字和第一行文字对齐 */
+.prose :global(.task-list-item) {
+  position: relative;
+  padding-left: 1.75em;
+}
+
+.prose :global(.task-list-item) > input[type="checkbox"] {
+  position: absolute;
+  top: 0.45em;
+  left: 0;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.prose blockquote {
+  padding-left: var(--space-2);
+  border-left: 3px solid var(--color-separator);
+  color: var(--color-secondary-label);
+}
+
+.prose hr {
+  margin-block: var(--space-5);
+  border: 0;
+  border-top: 0.5px solid var(--color-separator);
+}
+
+.prose img {
+  height: auto;
+  border-radius: var(--radius-md);
+}
+
+/* ---------- 代码 ---------- */
+.prose code {
+  font-family: var(--font-family-mono);
+  font-size: 0.9em;
+}
+
+.prose :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+}
+
+.prose pre {
+  padding: var(--space-2);
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  background: var(--color-secondary-background);
+  font-size: var(--font-size-footnote);
+  line-height: var(--line-height-snug);
+  tab-size: 2;
+}
+
+/* ---------- 表格：窄屏横向滚动，不撑破页面 ---------- */
+.prose table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: var(--font-size-subhead);
+}
+
+.prose th,
+.prose td {
+  padding: var(--space-1) var(--space-1-5);
+  border-bottom: 0.5px solid var(--color-separator);
+  text-align: left;
+}
+
+.prose th {
+  font-weight: var(--font-weight-semibold);
+}
+
+.prose :is(th, td)[align="right"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.prose :is(th, td)[align="center"] {
+  text-align: center;
+}
+
+/* ---------- 脚注 ---------- */
+.prose :global(.footnotes) {
+  margin-top: var(--space-6);
+  padding-top: var(--space-2);
+  border-top: 0.5px solid var(--color-separator);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+.prose sup {
+  line-height: 0;
+}
+
+.prose :global(.sr-only) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

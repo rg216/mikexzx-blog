@@ -1,0 +1,5 @@
+.title {
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-large-title);
+  font-weight: var(--font-weight-bold);
+}

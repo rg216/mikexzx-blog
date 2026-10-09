@@ -1,0 +1,47 @@
+/* 导航栏：吸顶 + 毛玻璃（HIG 的 bar material），是全站少数允许 backdrop-filter 的地方。 */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-top: env(safe-area-inset-top);
+  background: var(--material-bar-background);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-bottom: 0.5px solid var(--color-separator);
+}
+
+/* 不支持 backdrop-filter 时，半透明底会让正文透出来干扰阅读，改用不透明背景。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bar {
+    background: var(--color-background);
+  }
+}
+
+.inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  max-width: calc(var(--content-width) + var(--inset-left) + var(--inset-right));
+  min-height: var(--nav-height);
+  margin-inline: auto;
+  padding-inline: var(--inset-left) var(--inset-right);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-target);
+  color: var(--color-label);
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.links {
+  display: flex;
+  /* 链接自带内边距撑出 44px 点击区域，最右侧那个的内边距抵消掉，让文字和内容右边缘对齐 */
+  margin-right: calc(-1 * var(--space-1-5));
+  padding: 0;
+  list-style: none;
+}
