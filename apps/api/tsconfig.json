@@ -1,6 +1,22 @@
 {
-  "extends": "../../tsconfig.base.json",
+  // 不 extends 根目录的 tsconfig.base.json：Vercel 构建 API 时读不到 Root Directory 之外的文件，
+  // 继承失败后它会强制 strict=false 再做类型检查，导致误报。所以这里自包含，内容与 base 保持一致。
   "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
     "types": ["node"]
   },
   "include": ["src", "test", "drizzle.config.ts", "vitest.config.ts"]

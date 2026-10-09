@@ -26,6 +26,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - ESLint 锁 9.x：eslint-plugin-react / import / jsx-a11y 尚未支持 ESLint 10
   - `@types/node` 跟随运行时大版本（24），不跟 npm 最新版
 - `packages/shared` 直接导出 TS 源码，无构建步骤；`apps/web` 通过 `transpilePackages` 转译
+- `apps/api/tsconfig.json` 自包含、不继承 `tsconfig.base.json`（Vercel 构建 API 时读不到 Root Directory 外的文件，会强制 strict=false 误报）；改 base 时同步修改它
 - Next.js 16 的 API 与旧版差异大：写 Next 相关代码前先查与安装版本一致的文档 `apps/web/node_modules/next/dist/docs/`
 
 ## 常用命令（在仓库根目录执行）
