@@ -11,9 +11,12 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun run --filter @blog/web dev",
+    "dev": "bun run --filter './apps/*' dev",
     "build": "bun run --filter @blog/web build",
     "start": "bun run --filter @blog/web start",
+    "db:generate": "bun run --filter @blog/api db:generate",
+    "db:migrate": "bun run --filter @blog/api db:migrate",
+    "db:seed": "bun run --filter @blog/api db:seed",
     "lint": "bun run --filter '*' lint",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test"

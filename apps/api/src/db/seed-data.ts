@@ -1,8 +1,10 @@
+import type { PostCreateInput } from "@blog/shared";
+
 /*
- * v0 本地假数据（v1 起由 apps/api 提供）。
- * 类型故意写成 unknown：它和将来的 API 响应一样被当作外部输入，由 lib/posts.ts 用 zod 校验。
+ * 开发环境的初始数据（原 v0 前端的假数据）：bun run db:seed 写入本地数据库。
+ * 写入时仍经过 postCreateInputSchema 校验和服务层，和 API 走同一条路径。
  */
-export const rawPosts: unknown = [
+export const seedPosts: PostCreateInput[] = [
   {
     slug: "why-build-a-blog-from-scratch",
     title: "为什么要从零写一个博客",

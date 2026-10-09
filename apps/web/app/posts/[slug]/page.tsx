@@ -7,8 +7,8 @@ import { RecentPosts } from "@/components/RecentPosts";
 import { SidebarSection } from "@/components/SidebarSection";
 import { TagList } from "@/components/TagList";
 import { formatDate } from "@/lib/format";
-import { excerptFromMarkdown, renderMarkdown } from "@/lib/markdown";
-import { getPublishedPost, listPublishedPosts } from "@/lib/posts";
+import { renderMarkdown } from "@/lib/markdown";
+import { getPublishedPost, listAllPublishedPosts, listPublishedPosts } from "@/lib/posts";
 import prose from "@/components/Prose.module.css";
 import styles from "./page.module.css";
 
@@ -19,7 +19,7 @@ type Props = { params: Promise<{ slug: string }> };
 export const dynamicParams = false;
 
 export async function generateStaticParams() {
-  const posts = await listPublishedPosts();
+  const posts = await listAllPublishedPosts();
   return posts.map((post) => ({ slug: post.slug }));
 }
 
@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: post.title,
-    description: excerptFromMarkdown(post.contentMd),
+    description: post.excerpt,
     openGraph: {
       type: "article",
       title: post.title,
@@ -48,7 +48,7 @@ export default async function PostPage({ params }: Props) {
   const [html, allPosts] = await Promise.all([
     // html 来自 renderMarkdown，已经过 rehype-sanitize 白名单清洗。
     renderMarkdown(post.contentMd),
-    listPublishedPosts(),
+    listPublishedPosts({ limit: 5 }),
   ]);
   const recent = allPosts.filter((p) => p.slug !== post.slug).slice(0, 4);
 

@@ -1,0 +1,24 @@
+# 本地开发依赖。启动：docker compose up -d
+name: mikexxz-blog
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: blog
+      POSTGRES_PASSWORD: blog # 仅本地开发用，端口只绑定 127.0.0.1
+      POSTGRES_DB: blog
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # PG 18 镜像把数据目录改成了 /var/lib/postgresql/18/docker，挂载上一级，以后升级大版本不会冲突
+      - postgres-data:/var/lib/postgresql
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blog -d blog"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  postgres-data:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { postSchema, slugSchema } from "./post.ts";
+import { postCreateInputSchema, postSchema, postUpdateInputSchema, slugSchema } from "./post.ts";
 
 describe("slugSchema", () => {
   it.each(["hello", "hello-world", "v0-2026"])("accepts %s", (slug) => {
@@ -16,6 +16,7 @@ describe("postSchema", () => {
     slug: "hello",
     title: "Hello",
     contentMd: "# Hi",
+    excerpt: "Hi",
     status: "published",
     publishedAt: "2026-10-01T09:00:00+08:00",
     tags: [],
@@ -31,5 +32,32 @@ describe("postSchema", () => {
 
   it("rejects an unknown status", () => {
     expect(postSchema.safeParse({ ...base, status: "archived" }).success).toBe(false);
+  });
+});
+
+describe("postCreateInputSchema", () => {
+  const input = { slug: "hello", title: "Hello", contentMd: "正文" };
+
+  it("defaults status to draft and tags to []", () => {
+    expect(postCreateInputSchema.parse(input)).toEqual({ ...input, status: "draft", tags: [] });
+  });
+
+  it("rejects unknown fields instead of silently dropping them", () => {
+    expect(postCreateInputSchema.safeParse({ ...input, contentMD: "typo" }).success).toBe(false);
+  });
+
+  it("trims the title and rejects a blank one", () => {
+    expect(postCreateInputSchema.parse({ ...input, title: "  Hi  " }).title).toBe("Hi");
+    expect(postCreateInputSchema.safeParse({ ...input, title: "   " }).success).toBe(false);
+  });
+});
+
+describe("postUpdateInputSchema", () => {
+  it("does not fill in defaults, so a partial update leaves other fields alone", () => {
+    expect(postUpdateInputSchema.parse({ title: "New" })).toEqual({ title: "New" });
+  });
+
+  it("rejects an empty update", () => {
+    expect(postUpdateInputSchema.safeParse({}).success).toBe(false);
   });
 });

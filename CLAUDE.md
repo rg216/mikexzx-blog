@@ -26,11 +26,22 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - ESLint 锁 9.x：eslint-plugin-react / import / jsx-a11y 尚未支持 ESLint 10
   - `@types/node` 跟随运行时大版本（24），不跟 npm 最新版
 - `packages/shared` 直接导出 TS 源码，无构建步骤；`apps/web` 通过 `transpilePackages` 转译
+- Next.js 16 的 API 与旧版差异大：写 Next 相关代码前先查与安装版本一致的文档 `apps/web/node_modules/next/dist/docs/`
 
 ## 常用命令（在仓库根目录执行）
-- `bun install`：安装依赖（isolated linker，见 `bunfig.toml`）
-- `bun run dev` / `build` / `start`：前端开发 / 构建 / 启动
-- `bun run test` / `lint` / `typecheck`：对所有 workspace 执行
+- 首次：`bun install`（isolated linker，见 `bunfig.toml`）；`cp apps/api/.env.example apps/api/.env` 并填 `ADMIN_TOKEN`
+- `docker compose up -d`：本地 PostgreSQL 18（开发库 `blog`，测试库 `blog_test`）
+- `bun run db:migrate` / `db:seed`：迁移本地库 / 写入初始文章；改了 `schema.ts` 后 `bun run db:generate` 生成迁移
+- `bun run dev`：同时启动 API（:8787）和前端（:3000）
+- `bun run build`：构建前端（构建时会请求 API，需要 API 在运行）
+- `bun run test` / `lint` / `typecheck`：对所有 workspace 执行（API 测试连 `blog_test`，需要 Postgres 在运行）
+
+## API 约定
+- API 用 Node 24 原生 type stripping 直接运行 TS：相对导入写 `.ts` 扩展名，只用可擦除语法（无 enum、参数属性等）
+- 公开接口只用 slug 定位文章、只返回已发布内容；管理接口在 `/admin/*`，v1 用 `ADMIN_TOKEN` Bearer 鉴权（v2 换成 session）
+- 错误统一为 `{ error: { code, message, issues? } }`（见 `apiErrorSchema`）；列表用游标分页（`{ items, nextCursor }`）
+- 业务不变量尽量同时落在数据库约束上（如"已发布必须有发布时间"的 CHECK）
+- 测试连真实 Postgres，不 mock 数据库
 
 ## 设计规范（Apple HIG 的 Web 翻译）
 - 样式只引用 design tokens（CSS 变量），不写死颜色、字号、间距

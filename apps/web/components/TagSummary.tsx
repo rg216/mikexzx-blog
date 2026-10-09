@@ -1,4 +1,4 @@
-import type { TagWithCount } from "@/lib/posts";
+import type { TagWithCount } from "@blog/shared";
 import styles from "./TagSummary.module.css";
 
 /** 标签及篇数。v0 还没有标签页，所以只展示、不可点击；有了标签页再改成链接。 */

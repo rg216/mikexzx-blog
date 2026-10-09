@@ -1,46 +1,89 @@
-import { describe, expect, it } from "vitest";
-import { getPublishedPost, listPublishedPosts, listTags } from "./posts";
+import type { Post, PostSummary } from "@blog/shared";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getPublishedPost, listAllPublishedPosts, listPublishedPosts, listTags } from "./posts";
+
+// 这里只测前端数据层自己的职责：拼 URL、翻页、404 处理、校验响应。API 本身的行为由 apps/api 的测试覆盖。
+
+const summary = (slug: string): PostSummary => ({
+  slug,
+  title: slug,
+  excerpt: `${slug} 摘要`,
+  status: "published",
+  publishedAt: "2026-10-01T00:00:00.000Z",
+  tags: [],
+});
+
+const fetchMock = vi.fn<typeof fetch>();
+const requestedUrls = () => fetchMock.mock.calls.map(([input]) => String(input));
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubEnv("API_URL", "http://api.test");
+});
+afterEach(() => {
+  fetchMock.mockReset();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("listPublishedPosts", () => {
-  it("excludes drafts", async () => {
-    const posts = await listPublishedPosts();
-    expect(posts.length).toBeGreaterThan(0);
-    expect(posts.every((p) => p.status === "published")).toBe(true);
+  it("requests one page from API_URL", async () => {
+    fetchMock.mockResolvedValueOnce(json({ items: [summary("a")], nextCursor: "next" }));
+    expect((await listPublishedPosts({ limit: 5 })).map((p) => p.slug)).toEqual(["a"]);
+    expect(requestedUrls()).toEqual(["http://api.test/posts?limit=5"]);
   });
+});
 
-  it("sorts by publish date, newest first", async () => {
-    const times = (await listPublishedPosts()).map((p) => Date.parse(p.publishedAt ?? ""));
-    expect(times).toEqual([...times].sort((a, b) => b - a));
-  });
+describe("listAllPublishedPosts", () => {
+  it("follows the cursor until the last page", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ items: [summary("a"), summary("b")], nextCursor: "c1" }))
+      .mockResolvedValueOnce(json({ items: [summary("c")], nextCursor: null }));
 
-  it("returns summaries without the full content", async () => {
-    const [first] = await listPublishedPosts();
-    expect(first).not.toHaveProperty("contentMd");
-    expect(first?.excerpt.length).toBeGreaterThan(0);
+    expect((await listAllPublishedPosts()).map((p) => p.slug)).toEqual(["a", "b", "c"]);
+    expect(requestedUrls()).toEqual(["http://api.test/posts?limit=50", "http://api.test/posts?limit=50&cursor=c1"]);
   });
 });
 
 describe("getPublishedPost", () => {
-  it("returns a published post by slug", async () => {
-    const post = await getPublishedPost("why-build-a-blog-from-scratch");
-    expect(post?.title).toBe("为什么要从零写一个博客");
+  const post: Post = { ...summary("hello"), contentMd: "正文" };
+
+  it("returns the post", async () => {
+    fetchMock.mockResolvedValueOnce(json(post));
+    expect(await getPublishedPost("hello")).toEqual(post);
   });
 
-  it("returns null for drafts", async () => {
-    expect(await getPublishedPost("v1-api-plan")).toBeNull();
+  it("returns null on 404 (draft or missing)", async () => {
+    fetchMock.mockResolvedValueOnce(json({ error: { code: "not_found", message: "x" } }, 404));
+    expect(await getPublishedPost("nope")).toBeNull();
   });
 
-  it("returns null for unknown slugs", async () => {
-    expect(await getPublishedPost("does-not-exist")).toBeNull();
+  it("encodes the slug into the path", async () => {
+    fetchMock.mockResolvedValueOnce(json({}, 404));
+    await getPublishedPost("a/../admin");
+    expect(requestedUrls()).toEqual(["http://api.test/posts/a%2F..%2Fadmin"]);
   });
 });
 
-describe("listTags", () => {
-  it("counts tags across published posts only, most used first", async () => {
-    const tags = await listTags();
-    const counts = tags.map((t) => t.count);
-    expect(counts).toEqual([...counts].sort((a, b) => b - a));
-    // "全栈" 用在 3 篇已发布文章 + 1 篇草稿上，草稿不计
-    expect(tags.find((t) => t.slug === "fullstack")?.count).toBe(3);
+describe("error handling", () => {
+  it("throws when a response does not match the shared schema", async () => {
+    fetchMock.mockResolvedValueOnce(json([{ slug: "a", name: "A" }])); // 缺 count
+    await expect(listTags()).rejects.toThrow(/不符合 @blog\/shared 的约定/);
+  });
+
+  it("throws on a 404 from a list endpoint (misconfigured API_URL)", async () => {
+    fetchMock.mockResolvedValueOnce(json({}, 404));
+    await expect(listTags()).rejects.toThrow(/返回 404/);
+  });
+
+  it("throws on server errors", async () => {
+    fetchMock.mockResolvedValueOnce(json({ error: { code: "internal_error", message: "x" } }, 500));
+    await expect(getPublishedPost("hello")).rejects.toThrow(/返回 500/);
+  });
+
+  it("explains connection failures", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(listTags()).rejects.toThrow(/无法连接 API http:\/\/api\.test/);
   });
 });
