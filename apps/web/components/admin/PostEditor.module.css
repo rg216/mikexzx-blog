@@ -1,0 +1,48 @@
+/* 加载中 / 加载失败 / 找不到 */
+.status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: var(--content-width);
+  margin-inline: auto;
+}
+
+.title {
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-bold);
+}
+
+.text {
+  color: var(--color-secondary-label);
+}
+
+.loading {
+  display: flex;
+  align-self: center;
+  align-items: center;
+  gap: var(--space-1);
+  padding-block: var(--space-8);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.status > [role="alert"] {
+  align-self: stretch;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  min-height: var(--hit-target);
+  margin-left: calc(-1 * var(--space-1));
+  padding-right: var(--space-1);
+  color: var(--color-accent-text);
+  text-decoration: none;
+}
+
+.backIcon {
+  width: 1.4em;
+  height: 1.4em;
+}

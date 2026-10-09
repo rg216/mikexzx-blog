@@ -1,0 +1,68 @@
+/* 浮层：允许使用毛玻璃（见 tokens.css 的 --material-overlay-background） */
+.dialog {
+  width: calc(100% - var(--inset-left) - var(--inset-right));
+  max-width: var(--admin-dialog-width);
+  margin: auto;
+  padding: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--material-overlay-background);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  box-shadow: var(--shadow-overlay);
+  color: var(--color-label);
+  /* 弹出：从略小放大到原尺寸，弹簧曲线收尾 */
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-spring) var(--ease-spring);
+}
+
+@starting-style {
+  .dialog[open] {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+.dialog::backdrop {
+  background: var(--color-overlay-backdrop);
+}
+
+.title {
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.description {
+  margin-top: var(--space-1);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+  line-height: var(--line-height-body);
+  overflow-wrap: anywhere;
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-0-5);
+  margin-top: var(--space-2);
+  color: var(--color-destructive-text);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+.errorIcon {
+  flex: none;
+  width: 1.2em;
+  height: 1.2em;
+}
+
+/* 按钮等宽并排：取消在左、确认在右（Apple 的约定） */
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1-5);
+  margin-top: var(--space-3);
+}

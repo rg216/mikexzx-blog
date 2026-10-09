@@ -1,0 +1,19 @@
+.spinner {
+  flex: none;
+  width: 1.25em;
+  height: 1.25em;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* 减弱动态效果：不转，静止的图标仍能表示"进行中" */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

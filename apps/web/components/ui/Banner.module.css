@@ -1,0 +1,41 @@
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-1) var(--space-1-5);
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-destructive-fill);
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  line-height: var(--line-height-snug);
+}
+
+.icon {
+  flex: none;
+  width: 1.25em;
+  height: 1.25em;
+  margin-top: 0.05em;
+  color: var(--color-destructive-text);
+}
+
+.body {
+  flex: 1;
+  min-width: 12rem;
+  overflow-wrap: anywhere;
+}
+
+.title {
+  font-weight: var(--font-weight-semibold);
+}
+
+.text {
+  color: var(--color-label);
+}
+
+/* 操作按钮自带 44px 高，向上下拉回，不把提示条撑得太高 */
+.action {
+  flex: none;
+  margin-block: calc(-1 * var(--space-1));
+  margin-left: auto;
+}

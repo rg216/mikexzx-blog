@@ -1,0 +1,113 @@
+.button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-0-5);
+  min-width: var(--hit-target);
+  min-height: var(--hit-target);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; /* 去掉移动端双击缩放带来的点击延迟 */
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-spring) var(--ease-spring);
+}
+
+/* 全局焦点样式会把圆角改成 radius-sm，按钮保持自己的圆角，焦点环才贴合 */
+.button:focus-visible {
+  border-radius: var(--radius-md);
+}
+
+.button svg {
+  flex: none;
+  width: 1.25em;
+  height: 1.25em;
+}
+
+/* 按下轻微缩小，松手由弹簧曲线回弹（减弱动态效果时 duration 为 0） */
+.button:active:not(:disabled, [aria-disabled="true"]) {
+  transform: scale(0.97);
+}
+
+.button:disabled,
+.button[aria-disabled="true"] {
+  cursor: default;
+}
+
+/* 禁用态：降低不透明度。WCAG 不要求禁用控件满足对比度 */
+.button:disabled {
+  opacity: 0.4;
+}
+
+/* ---------- 样式 ---------- */
+
+.primary {
+  background: var(--color-button-primary);
+  color: var(--color-button-primary-label);
+}
+
+.secondary {
+  background: var(--color-fill);
+  color: var(--color-label);
+}
+
+.destructive {
+  background: var(--color-button-destructive);
+  color: var(--color-button-primary-label);
+}
+
+.plain,
+.plainDestructive {
+  padding-inline: var(--space-1-5);
+}
+
+.plain {
+  color: var(--color-accent-text);
+}
+
+.plainDestructive {
+  color: var(--color-destructive-text);
+}
+
+/* 悬停只在真正有鼠标的设备上生效，避免触屏点完后"粘"在悬停态 */
+@media (hover: hover) {
+  .primary:hover:not(:disabled) {
+    background: var(--color-button-primary-hover);
+  }
+
+  .secondary:hover:not(:disabled) {
+    background: var(--color-fill-hover);
+  }
+
+  .destructive:hover:not(:disabled) {
+    background: var(--color-button-destructive-hover);
+  }
+
+  /* 纯文字按钮悬停加下划线，而不是加底色：彩色字在灰底上对比度会掉到 4.5:1 以下 */
+  .plain:hover:not(:disabled),
+  .plainDestructive:hover:not(:disabled) {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  .iconOnly.plain:hover:not(:disabled),
+  .iconOnly.plainDestructive:hover:not(:disabled) {
+    background: var(--color-fill);
+  }
+}
+
+.iconOnly {
+  width: var(--hit-target);
+  padding: 0;
+}

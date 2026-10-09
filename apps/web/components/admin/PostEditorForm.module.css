@@ -1,0 +1,264 @@
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ---------- 工具栏 ---------- */
+
+/*
+ * 吸在导航栏下面。做成圆角的浮动条而不是通栏：页面主栏有最大宽度，
+ * 通栏需要 100vw，在有经典滚动条的系统上会多出横向滚动。
+ */
+.toolbar {
+  position: sticky;
+  top: calc(env(safe-area-inset-top) + var(--nav-height) + var(--space-1));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--admin-toolbar-height);
+  padding: var(--space-1) var(--space-1);
+  border: 0.5px solid var(--color-separator);
+  border-radius: var(--radius-lg);
+  background: var(--material-bar-background);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .toolbar {
+    background: var(--color-background);
+  }
+}
+
+.back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--hit-target);
+  min-height: var(--hit-target);
+  padding-right: var(--space-1);
+  border-radius: var(--radius-md);
+  color: var(--color-accent-text);
+  font-size: var(--font-size-subhead);
+  text-decoration: none;
+}
+
+.backIcon {
+  width: 1.6em;
+  height: 1.6em;
+  stroke-width: 2.25;
+}
+
+/* 窄屏只留箭头（仍有"返回列表"的可访问名称），给按钮腾地方 */
+@media (width < 46rem) {
+  .back {
+    padding-right: 0;
+  }
+
+  .backText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.saveStatus {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saveStatusError {
+  color: var(--color-destructive-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-1);
+}
+
+.banner {
+  margin-top: calc(-1 * var(--space-1));
+}
+
+/* ---------- 标题、slug、标签 ---------- */
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: var(--content-width);
+}
+
+.titleField,
+.slugField,
+.tagsField {
+  min-width: 0;
+}
+
+.postInfo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-1-5);
+  row-gap: var(--space-0-5);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+.viewLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  min-height: var(--hit-target);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.viewLink:hover {
+  text-decoration: underline;
+}
+
+.viewIcon {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+/* 标题输入框用大字号：写标题时就能感觉到它是标题。
+   两级选择器：保证覆盖 TextField.module.css 里 .textarea 的默认值（不依赖 CSS 文件的加载顺序） */
+.titleField .titleInput {
+  min-height: var(--hit-target);
+  padding-block: var(--space-1);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  resize: none;
+  field-sizing: content;
+}
+
+/* 宽屏：标题占满一行，slug 和标签左右并排，让编辑区尽量往上 */
+@media (min-width: 70rem) {
+  .meta {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    /* 与下方编辑 / 预览两栏同样的间距，左右两列对齐 */
+    column-gap: var(--space-3);
+    max-width: none;
+  }
+
+  .postInfo,
+  .titleField {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ---------- 编辑 / 预览 ---------- */
+
+.viewSwitch {
+  margin-bottom: calc(-1 * var(--space-1));
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* 窄屏：只显示当前选中的那一栏 */
+.split[data-view="edit"] .previewPane,
+.split[data-view="preview"] .editPane {
+  display: none;
+}
+
+.contentField {
+  flex: 1;
+}
+
+/*
+ * 正文输入：这是中文写作，用正文字体而不是等宽字体；字号、行高与文章页一致。
+ * 窄屏随内容自动变高（field-sizing），整页滚动；不支持的浏览器退回固定最小高度 + 手动拖拽。
+ */
+.contentField .contentInput {
+  min-height: var(--editor-min-height);
+  /* 内边距和预览区一致，两边第一行文字对齐 */
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-article);
+  line-height: var(--line-height-body);
+  field-sizing: content;
+}
+
+/* 和 TextField 的 label 同样式，两栏标题对齐 */
+.paneTitle {
+  margin-bottom: var(--space-1);
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: normal;
+}
+
+/* 预览区保持干净：只有一圈分隔线，没有底色和阴影 */
+.previewBody {
+  flex: 1;
+  min-height: var(--editor-min-height);
+  padding: var(--space-2) var(--space-3);
+  border: 0.5px solid var(--color-separator);
+  border-radius: var(--radius-md);
+}
+
+/* ---------- 宽屏：左右分栏 ---------- */
+@media (min-width: 70rem) {
+  .viewSwitch {
+    display: none;
+  }
+
+  .split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    /* 两栏一起占满视口剩余高度，各自内部滚动：长文也能同时看到编辑处和预览 */
+    height: max(
+      var(--editor-min-height),
+      calc(100dvh - env(safe-area-inset-top) - var(--nav-height) - var(--admin-toolbar-height) - var(--space-4))
+    );
+  }
+
+  .split[data-view] .previewPane,
+  .split[data-view] .editPane {
+    display: flex;
+  }
+
+  .contentField {
+    min-height: 0;
+  }
+
+  .contentField .contentInput {
+    flex: 1;
+    min-height: 0;
+    field-sizing: fixed;
+    resize: none;
+  }
+
+  .previewBody {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}

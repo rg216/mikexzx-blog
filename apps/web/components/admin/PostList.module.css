@@ -1,0 +1,240 @@
+.page {
+  max-width: var(--admin-list-width);
+  margin-inline: auto;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  font-size: var(--font-size-large-title);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 标题只在删除后接收程序化焦点，不需要焦点环 */
+.title:focus {
+  outline: none;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding-block: var(--space-8);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-8) var(--space-2);
+  border-radius: var(--radius-lg);
+  background: var(--color-secondary-background);
+  text-align: center;
+}
+
+.emptyIcon {
+  width: var(--space-6);
+  height: var(--space-6);
+  margin-bottom: var(--space-1);
+  color: var(--color-secondary-label);
+  stroke-width: 1.5;
+}
+
+.emptyTitle {
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+}
+
+.emptyText {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+/* ---------- 列表 ---------- */
+
+/* 列标题：只在宽屏出现（窄屏每行自带"更新于 / 发布于"字样） */
+.columns {
+  display: none;
+}
+
+.list {
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * 窄屏：每行是一张"卡片"，标题在上，状态 + 时间在下，操作按钮在右上角。
+ * 宽屏：同一套 DOM 变成表格式的行，各列用 subgrid 和列标题对齐。
+ */
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "main actions"
+    "meta actions";
+  align-items: center;
+  column-gap: var(--space-1);
+  row-gap: var(--space-0-5);
+  padding: var(--space-1-5) 0;
+  border-bottom: 0.5px solid var(--color-separator);
+}
+
+.main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.link {
+  color: var(--color-label);
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+/* 整行可点击 */
+.link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.link:focus-visible {
+  outline: none;
+}
+
+.link:focus-visible::after {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-md);
+}
+
+@media (hover: hover) {
+  .row:has(.link:hover) .link {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+}
+
+.slug {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 窄屏：状态徽章在左，两个时间在右侧上下排列 */
+.meta {
+  grid-area: meta;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.dates {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* 和徽章的文字基线大致对齐 */
+  padding-top: 0.125em;
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-variant-numeric: tabular-nums;
+}
+
+.dates > div {
+  display: flex;
+  gap: var(--space-0-5);
+}
+
+.dates dd {
+  margin: 0;
+}
+
+/* 窄屏不显示"从未发布"那一项，少一点噪音 */
+.dates > .unpublished {
+  display: none;
+}
+
+/* 操作按钮浮在整行链接之上，才能单独点到 */
+.actions {
+  position: relative;
+  z-index: 1;
+  grid-area: actions;
+  display: flex;
+  align-self: center;
+}
+
+/* ---------- 宽屏：表格式 ---------- */
+@media (min-width: 46rem) {
+  .columns,
+  .row {
+    grid-template-columns: minmax(0, 1fr) 5.5rem 9.5rem 9.5rem 5.5rem;
+    column-gap: var(--space-2);
+  }
+
+  .columns {
+    display: grid;
+    padding-bottom: var(--space-1);
+    border-bottom: 0.5px solid var(--color-separator);
+    color: var(--color-secondary-label);
+    font-size: var(--font-size-footnote);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .row {
+    grid-template-areas: none;
+    padding-block: var(--space-1);
+  }
+
+  .main,
+  .actions {
+    grid-area: auto;
+  }
+
+  /* 外层只是窄屏排版用的容器，宽屏时让子元素直接参与行的网格 */
+  .meta {
+    display: contents;
+  }
+
+  .dates {
+    grid-column: span 2;
+    display: grid;
+    grid-template-columns: subgrid;
+    font-size: var(--font-size-subhead);
+  }
+
+  .dates dt {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .dates > .unpublished {
+    display: flex;
+  }
+
+  .actions {
+    justify-content: flex-end;
+  }
+}

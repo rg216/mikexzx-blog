@@ -215,3 +215,87 @@
     --duration-spring: 0ms;
   }
 }
+
+/* ---------- 管理后台 ---------- */
+/*
+ * 后台是工作界面：按钮、输入框、状态徽章、浮层。
+ * 对比度都用 WCAG 2 公式算过（半透明色先叠加到实际底色上再算），写在每个值后面。
+ */
+:root {
+  /*
+   * 实心主按钮。白字在 #007AFF 上只有 4.02:1、在 #0A84FF 上 3.65:1，都不到 AA 的 4.5:1，
+   * 所以改用 apple.com 的按钮蓝 #0071E3（白字 4.70:1），深浅两种主题都用它。
+   * 悬停加深而不是变亮：apple.com 的悬停色 #0077ED 白字只有 4.32:1。
+   */
+  --color-button-primary: #0071e3; /* 白字 4.70:1 */
+  --color-button-primary-hover: #0068d6; /* 白字 5.31:1 */
+  --color-button-primary-label: #ffffff;
+
+  /* 实心危险按钮：iOS systemRed #FF3B30 白字只有 3.55:1，用它的高对比变体 #D70015 */
+  --color-button-destructive: #d70015; /* 白字 5.38:1 */
+  --color-button-destructive-hover: #c4000f; /* 白字 6.26:1 */
+
+  /* 次要按钮的悬停底色（iOS secondarySystemFill）；次要按钮的字用 label 色，在任何底上都远超 4.5:1 */
+  --color-fill-hover: rgb(120 120 128 / 0.2);
+
+  /* 危险/错误文字：白底 5.38:1，#f2f2f7 底 4.83:1，fill 底 4.68:1 */
+  --color-destructive-text: #d70015;
+  /* 错误提示条的淡红底：上面的字用 label 色；图标用 destructive-text，在此底上 4.58:1 */
+  --color-destructive-fill: rgb(255 59 48 / 0.12);
+
+  /* 成功（已发布）徽章：#248A3D 在淡绿底上只有 3.89:1，再加深一档 */
+  --color-success-text: #1e7a34; /* 淡绿底（叠在白底上）4.78:1 */
+  --color-success-fill: rgb(52 199 89 / 0.15);
+
+  /*
+   * 输入框：iOS 的"灰底无边框"输入框，边界对比度达不到 WCAG 1.4.11（非文字 ≥ 3:1），
+   * 改用 apple.com 表单的做法：白底 + 中灰描边。
+   */
+  --color-field-background: #ffffff;
+  --color-field-border: #86868b; /* 白底 3.62:1 */
+
+  /*
+   * 分段控件选中的那一段（iOS UISegmentedControl）。选中态不只靠底色区分：
+   * 还有阴影和半粗字重，读屏软件则从 radio 的 checked 状态得知。
+   */
+  --color-segment-selected: #ffffff;
+  --shadow-segment-selected: 0 1px 3px rgb(0 0 0 / 0.12), 0 1px 1px rgb(0 0 0 / 0.04);
+
+  /*
+   * 浮层（对话框）：接近不透明，只留一点毛玻璃透感。
+   * 按最坏情况算（背后是黑色内容、再被遮罩压暗）：次要文字 4.78:1，危险文字 4.71:1，accent-text 4.87:1。
+   */
+  --material-overlay-background: rgb(255 255 255 / 0.94);
+  --color-overlay-backdrop: rgb(0 0 0 / 0.4);
+  --shadow-overlay: 0 1.5rem 4rem rgb(0 0 0 / 0.2);
+
+  /* 后台布局 */
+  --admin-toolbar-height: 3.75rem; /* 60：44 的按钮 + 上下各 8 */
+  --admin-list-width: 60rem; /* 960：文章列表的最大宽度 */
+  --admin-dialog-width: 25rem; /* 400 */
+  --editor-min-height: 24rem; /* 384：编辑 / 预览区的最小高度 */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-fill-hover: rgb(120 120 128 / 0.32);
+    --color-destructive-text: #ff6961; /* 黑底 7.45:1，#1c1c1e 底 6.03:1，fill 底 4.52:1 */
+    --color-destructive-fill: rgb(255 69 58 / 0.2); /* #ff6961 在此底上 6.17:1（叠在黑底）/ 4.75:1（叠在 #1c1c1e） */
+    --color-success-text: #30d158; /* 淡绿底（叠在黑底上）7.70:1，叠在 #1c1c1e 上 5.67:1 */
+    --color-success-fill: rgb(48 209 88 / 0.2);
+    --color-field-background: #1c1c1e;
+    --color-field-border: #7c7c80; /* #1c1c1e 底 4.09:1，黑底 5.05:1 */
+    --color-segment-selected: #636366; /* 白字 5.99:1 */
+    --shadow-segment-selected: 0 1px 3px rgb(0 0 0 / 0.3);
+    /* 最坏情况（背后是白色内容、被遮罩压暗）：次要文字 5.66:1，危险文字 5.53:1 */
+    --material-overlay-background: rgb(28 28 30 / 0.94);
+    --color-overlay-backdrop: rgb(0 0 0 / 0.6);
+    --shadow-overlay: 0 1.5rem 4rem rgb(0 0 0 / 0.5);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --material-overlay-background: var(--color-secondary-grouped-background);
+  }
+}

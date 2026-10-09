@@ -1,0 +1,48 @@
+.control {
+  display: flex;
+  min-width: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+}
+
+.segment {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  /* 每一段本身就是 44 高（iOS 原生是 32，但 Web 上手指和鼠标都按 44 的最小点击区域来） */
+  min-height: var(--hit-target);
+  padding-inline: var(--space-1-5);
+  border-radius: calc(var(--radius-md) - 2px);
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+/* radio 本身隐藏，但仍在可访问性树里，也仍能聚焦 */
+.input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.segment:has(.input:checked) {
+  background: var(--color-segment-selected);
+  box-shadow: var(--shadow-segment-selected);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 焦点环画在整段上（radio 透明，看不见它自己的焦点环） */
+.segment:has(.input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}

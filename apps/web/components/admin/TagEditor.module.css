@@ -1,0 +1,101 @@
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* 和 TextField 的 label 同样式 */
+.legend {
+  margin-bottom: var(--space-1);
+  padding: 0;
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.none {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: 0;
+  list-style: none;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  max-width: 100%;
+  min-height: var(--hit-target);
+  padding-left: var(--space-1-5);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  font-size: var(--font-size-subhead);
+}
+
+.tagName {
+  overflow-wrap: anywhere;
+}
+
+.tagSlug {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  overflow-wrap: anywhere;
+}
+
+.remove {
+  color: var(--color-secondary-label);
+}
+
+/* 新增：窄屏两个输入框并排、按钮在下一行；宽屏三者一行 */
+.add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-1-5);
+}
+
+.addButton {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+@media (min-width: 46rem) {
+  .add {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  /* 按钮和输入框对齐：让出 label 的高度（一行 subhead）+ label 与输入框的间距。
+     不用 align-items: end，是因为输入框下面出现错误提示时按钮会跟着往下跑 */
+  .addButton {
+    grid-column: auto;
+    margin-top: calc(var(--font-size-subhead) * var(--line-height-tight) + var(--space-1));
+  }
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-0-5);
+  color: var(--color-destructive-text);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+.errorIcon {
+  flex: none;
+  width: 1.2em;
+  height: 1.2em;
+  margin-top: 0.05em;
+}

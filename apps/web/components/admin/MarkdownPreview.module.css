@@ -1,0 +1,4 @@
+.placeholder {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}

@@ -1,0 +1,86 @@
+/* 与 SiteHeader 相同：吸顶 + 毛玻璃，高度 --nav-height，编辑器工具栏据此计算吸顶位置 */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-top: env(safe-area-inset-top);
+  background: var(--material-bar-background);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-bottom: 0.5px solid var(--color-separator);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bar {
+    background: var(--color-background);
+  }
+}
+
+.inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  max-width: calc(var(--page-width) + var(--inset-left) + var(--inset-right));
+  min-height: var(--nav-height);
+  margin-inline: auto;
+  padding-inline: var(--inset-left) var(--inset-right);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--hit-target);
+  color: var(--color-label);
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.badge {
+  padding: 0 var(--space-0-5);
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  /* 最右侧链接的内边距抵消掉，让文字和内容右边缘对齐 */
+  margin-right: calc(-1 * var(--space-1-5));
+}
+
+.links {
+  display: flex;
+  padding: 0;
+  list-style: none;
+}
+
+/* 样式同 NavLink，外加一个"新窗口"小图标 */
+.external {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-0-5);
+  min-width: var(--hit-target);
+  min-height: var(--hit-target);
+  padding-inline: var(--space-1-5);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.external:hover {
+  color: var(--color-label);
+}
+
+.externalIcon {
+  width: 1em;
+  height: 1em;
+}

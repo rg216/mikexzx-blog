@@ -1,0 +1,89 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.label {
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.row > .control {
+  flex: 1;
+  min-width: 0;
+}
+
+.control {
+  width: 100%;
+  min-height: var(--hit-target);
+  padding: var(--space-1) var(--space-1-5);
+  border: 1px solid var(--color-field-border);
+  border-radius: var(--radius-md);
+  background: var(--color-field-background);
+  color: var(--color-label);
+  /* ≥ 16px：iOS Safari 聚焦字号小于 16px 的输入框时会自动放大页面 */
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-tight);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.control::placeholder {
+  color: var(--color-secondary-label);
+  opacity: 1; /* Firefox 默认给 placeholder 降了透明度，会掉到对比度以下 */
+}
+
+/* 输入框获得焦点时一律显示焦点环（鼠标点进去也要知道光标在哪），圆角跟随控件 */
+.control:focus-visible {
+  border-color: var(--color-accent);
+  border-radius: var(--radius-md);
+  outline-offset: 0;
+}
+
+.control[aria-invalid="true"] {
+  border-color: var(--color-destructive-text);
+}
+
+.control:read-only {
+  background: var(--color-secondary-background);
+}
+
+.textarea {
+  min-height: calc(var(--hit-target) * 3);
+  padding-block: var(--space-1-5);
+  line-height: var(--line-height-body);
+  resize: vertical;
+}
+
+.hint {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  line-height: var(--line-height-snug);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-0-5);
+  color: var(--color-destructive-text);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+.errorIcon {
+  flex: none;
+  width: 1.2em;
+  height: 1.2em;
+  /* 和第一行文字的 x 高度对齐 */
+  margin-top: 0.05em;
+}
