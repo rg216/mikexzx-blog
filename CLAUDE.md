@@ -77,7 +77,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 
 ## 路线
 - [x] v0 前台：tokens、布局、首页列表、文章页，使用本地假数据；部署上线（Vercel，Root Directory `apps/web`，push 到 main 自动部署：https://mikexzx-blog.vercel.app）
-- [ ] v1 API：Hono + Drizzle + Postgres，posts CRUD，zod 校验，Vitest
+- [x] v1 API：Hono + Drizzle + Postgres，posts CRUD，zod 校验，Vitest（API 部署在 Vercel 第二个项目，Root Directory `apps/api`：https://mikexzx-blog-api.vercel.app；数据库 Neon us-east-1，迁移在本地用 `apps/api/.env.neon` 直连执行；前端项目设 `API_URL`）
 - [ ] v2 管理后台：登录、编辑器、草稿 / 发布、图片上传
 - [ ] v3 渲染与缓存：ISR；发布文章时由 API 通知前端 revalidate
 - [ ] v4 评论（OAuth、楼中楼、审核）、阅读数（Redis）、全文搜索（Postgres tsvector）
