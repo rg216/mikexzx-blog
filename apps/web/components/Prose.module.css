@@ -2,25 +2,46 @@
  * Markdown 正文排版。正文区保持干净：不用毛玻璃、阴影等装饰。
  * 用 .prose 后代选择器而不是给每个元素加 class，因为 HTML 来自 Markdown 渲染，没法加 class。
  */
+
+/*
+ * Breakout 网格：正文走中间的 content 栏，figure 走更宽的 wide 栏。
+ *   [wide-start] 弹性 [content-start] 正文 [content-end] 弹性 [wide-end]
+ * 有侧栏时 wide 恰好占满主栏；没有侧栏时整体居中，最宽不超过 --wide-width。
+ */
 .prose {
+  display: grid;
+  grid-template-columns:
+    [wide-start] minmax(0, 1fr)
+    [content-start] minmax(0, var(--content-width))
+    [content-end] minmax(0, 1fr)
+    [wide-end];
+  max-width: var(--wide-width);
+  margin-inline: auto;
+  font-size: var(--font-size-article);
+  letter-spacing: var(--letter-spacing-article);
   overflow-wrap: break-word;
 }
 
-/* 块级元素之间统一用上外边距隔开（"猫头鹰选择器"），第一个元素顶部不留白 */
+.prose > * {
+  grid-column: content;
+}
+
+/* 块级元素之间统一用上外边距隔开（"猫头鹰选择器"），第一个元素顶部不留白。
+   段距约等于一行，和 Newsroom 一致，比半行更像"段落"而不是"换行" */
 .prose > * + * {
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 .prose h2 {
-  margin-top: var(--space-5);
-  font-size: var(--font-size-title2);
+  margin-top: var(--space-6);
+  font-size: var(--font-size-article-h2);
   font-weight: var(--font-weight-bold);
 }
 
 .prose h3 {
-  margin-top: var(--space-4);
-  font-size: var(--font-size-title3);
-  font-weight: var(--font-weight-semibold);
+  margin-top: var(--space-5);
+  font-size: var(--font-size-article-h3);
+  font-weight: var(--font-weight-bold);
 }
 
 .prose h4 {
@@ -89,6 +110,55 @@
   border-radius: var(--radius-md);
 }
 
+/* ---------- 图文混排 ---------- */
+.prose > figure {
+  grid-column: wide;
+}
+
+/* 网格里外边距不折叠：只用上边距控制前后间距，否则图片下边距 + 标题上边距会叠成双倍 */
+.prose > figure,
+.prose > figure + * {
+  margin-top: var(--space-5);
+}
+
+.prose > figure + :is(h2, h3) {
+  margin-top: var(--space-6);
+}
+
+/* 手机上图片贴满屏幕两侧（抵消外层的左右边距），去掉圆角——同 Newsroom */
+@media (width < 46rem) {
+  .prose > figure {
+    margin-inline: calc(-1 * var(--inset-left)) calc(-1 * var(--inset-right));
+  }
+
+  .prose > figure img {
+    border-radius: 0;
+  }
+}
+
+.prose > figure img {
+  width: 100%;
+  border-radius: var(--radius-lg);
+  background: var(--color-fill); /* 加载前的占位色 */
+}
+
+/* 图注和正文左对齐（而不是和更宽的图片对齐），小号灰字用半粗 */
+.prose figcaption {
+  max-width: var(--content-width);
+  margin: var(--space-1-5) auto 0;
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  letter-spacing: normal;
+}
+
+@media (width < 46rem) {
+  .prose figcaption {
+    padding-inline: var(--inset-left) var(--inset-right);
+  }
+}
+
 /* ---------- 代码 ---------- */
 .prose code {
   font-family: var(--font-family-mono);
@@ -103,6 +173,7 @@
 
 .prose pre {
   padding: var(--space-2);
+  letter-spacing: normal;
   overflow-x: auto;
   border-radius: var(--radius-md);
   background: var(--color-secondary-background);

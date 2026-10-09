@@ -1,4 +1,4 @@
-import { postSchema, type Post, type PostSummary } from "@blog/shared";
+import { postSchema, type Post, type PostSummary, type Tag } from "@blog/shared";
 import { z } from "zod";
 import { rawPosts } from "@/content/posts";
 import { excerptFromMarkdown } from "./markdown";
@@ -34,4 +34,19 @@ export async function listPublishedPosts(): Promise<PostSummary[]> {
 export async function getPublishedPost(slug: string): Promise<PublishedPost | null> {
   const post = posts.find((p) => p.slug === slug);
   return post && isPublished(post) ? post : null;
+}
+
+export type TagWithCount = Tag & { count: number };
+
+/** 已发布文章用到的标签及篇数，按篇数降序、同数按名称排序。 */
+export async function listTags(): Promise<TagWithCount[]> {
+  const counts = new Map<string, TagWithCount>();
+  for (const post of posts.filter(isPublished)) {
+    for (const tag of post.tags) {
+      const entry = counts.get(tag.slug) ?? { ...tag, count: 0 };
+      entry.count += 1;
+      counts.set(tag.slug, entry);
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN"));
 }

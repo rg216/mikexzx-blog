@@ -1,5 +1,9 @@
+/* 和正文栏对齐 */
 .title {
-  margin-bottom: var(--space-3);
-  font-size: var(--font-size-large-title);
+  max-width: var(--content-width);
+  margin: 0 auto var(--space-3);
+  font-size: var(--font-size-article-title);
   font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-display);
+  letter-spacing: var(--letter-spacing-display);
 }

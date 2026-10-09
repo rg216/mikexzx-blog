@@ -9,7 +9,7 @@
   align-items: center;
   justify-content: space-between;
   column-gap: var(--space-2);
-  max-width: calc(var(--content-width) + var(--inset-left) + var(--inset-right));
+  max-width: calc(var(--page-width) + var(--inset-left) + var(--inset-right));
   margin-inline: auto;
   /* 链接自身撑到 44px 高，这里的上下内边距相应减小 */
   padding: var(--space-1-5) var(--inset-right) var(--space-1-5) var(--inset-left);

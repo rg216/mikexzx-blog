@@ -23,8 +23,14 @@
 
 .title {
   font-size: var(--font-size-title3);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-bold);
   line-height: var(--line-height-snug);
+}
+
+@media (min-width: 70rem) {
+  .title {
+    font-size: var(--font-size-title2);
+  }
 }
 
 .link {
@@ -63,6 +69,12 @@
   line-height: var(--line-height-body);
 }
 
+@media (min-width: 70rem) {
+  .excerpt {
+    font-size: var(--font-size-body);
+  }
+}
+
 .meta {
   display: flex;
   flex-wrap: wrap;
@@ -72,4 +84,6 @@
   margin-top: var(--space-1);
   color: var(--color-secondary-label);
   font-size: var(--font-size-footnote);
+  /* 小号灰字用半粗补偿 */
+  font-weight: var(--font-weight-semibold);
 }

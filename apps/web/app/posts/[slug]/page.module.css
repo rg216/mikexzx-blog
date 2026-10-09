@@ -1,3 +1,9 @@
+/* 标题区和正文栏对齐：与 .prose 的 content 栏同宽、同样居中 */
+.header {
+  max-width: var(--content-width);
+  margin: 0 auto var(--space-5);
+}
+
 .back {
   display: inline-flex;
   align-items: center;
@@ -18,21 +24,12 @@
   stroke-width: 2.25;
 }
 
-.header {
-  margin-bottom: var(--space-4);
-}
-
+/* 字号随断点放大：28 → 40 → 48（见 tokens.css 的阅读字号） */
 .title {
-  font-size: var(--font-size-large-title);
+  font-size: var(--font-size-article-title);
   font-weight: var(--font-weight-bold);
-}
-
-/* 34px 的 Large Title 在手机上一行只放得下 10 个汉字，长标题会被拆得很碎；窄屏降到 Title 1。
-   （媒体查询里不能用 CSS 变量，30rem ≈ 480px） */
-@media (max-width: 30rem) {
-  .title {
-    font-size: var(--font-size-title1);
-  }
+  line-height: var(--line-height-display);
+  letter-spacing: var(--letter-spacing-display);
 }
 
 .meta {
@@ -41,7 +38,11 @@
   align-items: center;
   column-gap: var(--space-1-5);
   row-gap: var(--space-0-5);
-  margin-top: var(--space-1-5);
+  margin-top: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 0.5px solid var(--color-separator);
   color: var(--color-secondary-label);
   font-size: var(--font-size-subhead);
+  /* 小号灰字用半粗补偿 */
+  font-weight: var(--font-weight-semibold);
 }

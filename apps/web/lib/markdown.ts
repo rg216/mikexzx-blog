@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
+import { rehypeFigure } from "./rehype-figure";
 
 /*
  * Markdown → HTML 字符串。
@@ -31,6 +32,7 @@ const htmlProcessor = unified()
     // 这里关掉第二次：原始 HTML 在上一步已被丢弃，用户写不出任意 id，带 id 的只有已加前缀的脚注。
     clobberPrefix: "",
   })
+  .use(rehypeFigure)
   .use(rehypeStringify);
 
 export async function renderMarkdown(markdown: string): Promise<string> {

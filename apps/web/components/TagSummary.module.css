@@ -1,0 +1,23 @@
+.list {
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-block: var(--space-1);
+  font-size: var(--font-size-subhead);
+}
+
+.row + .row {
+  border-top: 0.5px solid var(--color-separator);
+}
+
+.count {
+  color: var(--color-secondary-label);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}

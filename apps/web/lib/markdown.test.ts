@@ -64,3 +64,33 @@ describe("excerptFromMarkdown", () => {
     expect(excerptFromMarkdown("👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧", 2)).toBe("👨‍👩‍👧👨‍👩‍👧…");
   });
 });
+
+describe("images", () => {
+  it("turns a standalone image into a figure with its title as caption", async () => {
+    const html = await renderMarkdown('![一张图](/images/a.png "图注文字")');
+    expect(html).toBe(
+      '<figure><img src="/images/a.png" alt="一张图" loading="lazy" decoding="async"><figcaption>图注文字</figcaption></figure>',
+    );
+  });
+
+  it("omits the caption when there is no title", async () => {
+    const html = await renderMarkdown("![一张图](/images/a.png)");
+    expect(html).toBe('<figure><img src="/images/a.png" alt="一张图" loading="lazy" decoding="async"></figure>');
+  });
+
+  it("keeps inline images inside paragraphs, but still lazy-loads them", async () => {
+    const html = await renderMarkdown("文字 ![图](/a.png) 文字");
+    expect(html).toBe('<p>文字 <img src="/a.png" alt="图" loading="lazy" decoding="async"> 文字</p>');
+  });
+
+  it("escapes HTML in captions", async () => {
+    const html = await renderMarkdown('![x](/a.png "<script>alert(1)</script>")');
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("<figcaption>&#x3C;script>alert(1)&#x3C;/script></figcaption>");
+  });
+
+  it("strips javascript: image sources", async () => {
+    const html = await renderMarkdown("![x](javascript:alert(1))");
+    expect(html).not.toContain("javascript:");
+  });
+});

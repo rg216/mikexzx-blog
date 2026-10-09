@@ -63,6 +63,8 @@ iOS 的默认字号以 pt 为单位，在 Web 上直接除以 16 换算成 rem�
 
 用 rem 而不是 px 的好处是：用户在浏览器里调大默认字号时，整个站点会等比放大。这差不多就是 Web 版的 Dynamic Type。
 
+![iOS Dynamic Type 字号阶梯](/images/posts/type-scale.svg "iOS Dynamic Type 的九级默认字号，以及换算后的 rem 值。")
+
 ## 语义色
 
 组件里不写 \`#000\`，而是写 \`var(--color-label)\`。深色模式只需要在一个地方重新定义变量：
@@ -89,7 +91,11 @@ iOS 的 \`secondaryLabel\` 在白底上的对比度只有 3.4:1 左右，达不�
 
 ## 动效：弹簧曲线
 
-CSS 的 \`linear()\` 函数可以用一串采样点描述任意曲线，于是可以把真实的阻尼弹簧方程采样后写进 CSS，而不是用 \`cubic-bezier\` 去近似。`,
+CSS 的 \`linear()\` 函数可以用一串采样点描述任意曲线，于是可以把真实的阻尼弹簧方程采样后写进 CSS，而不是用 \`cubic-bezier\` 去近似。
+
+![弹簧曲线与 ease-out 曲线对比](/images/posts/spring-curve.svg "阻尼比约 0.8 的弹簧会略微越过终点再回落，ease-out 则平滑地停住。")
+
+弹簧在终点附近有约 1.4% 的回弹，幅度很小，但正是这一点让按压反馈显得“有弹性”。`,
   },
   {
     slug: "choosing-a-package-manager",

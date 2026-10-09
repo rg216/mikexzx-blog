@@ -1,0 +1,12 @@
+.section + .section {
+  margin-top: var(--space-5);
+}
+
+/* 小号灰字用半粗补偿，否则在浅色背景上显得单薄（Newsroom 的眉标、图注同样处理） */
+.title {
+  margin-bottom: var(--space-1);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: normal;
+}

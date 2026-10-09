@@ -1,0 +1,32 @@
+.withAside {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: var(--space-8);
+}
+
+/* minmax(0, …)：防止长代码行、宽表格把主栏撑破 */
+.primary {
+  min-width: 0;
+}
+
+/* 窄屏：侧栏排在主内容下面，用分隔线隔开 */
+.aside {
+  padding-top: var(--space-4);
+  border-top: 0.5px solid var(--color-separator);
+}
+
+@media (min-width: 70rem) {
+  .withAside {
+    grid-template-columns: minmax(0, 1fr) var(--sidebar-width);
+    column-gap: var(--layout-gap);
+  }
+
+  /* 侧栏吸顶：滚动长文时一直可见；让出导航栏和刘海的高度 */
+  .aside {
+    position: sticky;
+    top: calc(env(safe-area-inset-top) + var(--nav-height) + var(--space-4));
+    align-self: start;
+    padding-top: 0;
+    border-top: 0;
+  }
+}
