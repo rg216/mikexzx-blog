@@ -39,6 +39,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 
 ## API 约定
 - API 用 Node 24 原生 type stripping 直接运行 TS：相对导入写 `.ts` 扩展名，只用可擦除语法（无 enum、参数属性等）
+- 部署时先打包：`bun run --filter @blog/api build`（esbuild，`build.ts`）生成 `dist/index.js`，内联 workspace 包、npm 依赖保持 external；Vercel 按 `apps/api/vercel.json` 从 `dist/` 找入口（它的构建器不会改写 `.ts` 导入）
 - 公开接口只用 slug 定位文章、只返回已发布内容；管理接口在 `/admin/*`，v1 用 `ADMIN_TOKEN` Bearer 鉴权（v2 换成 session）
 - 错误统一为 `{ error: { code, message, issues? } }`（见 `apiErrorSchema`）；列表用游标分页（`{ items, nextCursor }`）
 - 业务不变量尽量同时落在数据库约束上（如"已发布必须有发布时间"的 CHECK）

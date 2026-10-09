@@ -19,5 +19,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "drizzle.config.ts", "vitest.config.ts"]
+  "include": ["src", "test", "build.ts", "drizzle.config.ts", "vitest.config.ts"]
 }
