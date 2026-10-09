@@ -38,12 +38,12 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 不得嵌入 SF Pro 网络字体，不得使用 SF Symbols（许可证仅限 Apple 平台 app）；图标用 Lucide
 - 页脚 "Created with Claude" 只用纯文字，不用 Claude / Anthropic logo：没有公开授权的徽章，[商标规范](https://www.anthropic.com/legal/trademark-guidelines)要求 logo 使用须事先书面许可
 - 界面字号参考 iOS Dynamic Type 默认值，用 rem 表示：Large Title 34 / Title1 28 / Title2 22 / Title3 20 / Headline 17 semibold / Body 17 / Subhead 15 / Footnote 13 / Caption 12
-- 文章阅读字号参考 Apple Newsroom：正文 17 → 桌面 19；文章标题 28 → 40 → 48 bold；正文 h2 22 → 24 bold
+- 文章阅读字号参考 Apple Newsroom：正文 17（桌面试过 19 / 18，偏大）；文章标题 28 → 40 → 48 bold；正文 h2 22 → 24 bold
 - 小号灰色文字（日期、标签、图注、侧栏标题）用 semibold 补偿，避免单薄
 - 语义色：label / secondary label / background / grouped background / separator / accent；用 `prefers-color-scheme` 支持深色模式；accent 浅色 #007AFF，深色 #0A84FF
 - 8pt 间距网格；处理 safe-area inset（`viewport-fit=cover`）
 - 版面三层宽度：页面 1200px / 出血图片 864px / 正文 680px；桌面主栏 + 280px 侧栏（侧栏放控件、推荐文章，DOM 顺序在主内容之后）
-- 断点用 rem：md 46rem（≈736px）、lg 70rem（≈1120px，出现侧栏、正文 19px）
+- 断点用 rem：md 46rem（≈736px）、lg 70rem（≈1120px，出现侧栏、文章标题 48px）
 - 图文混排：单独成段的图片渲染为 `<figure>`（title 作图注），桌面比正文宽、手机贴满屏幕两侧
 - 毛玻璃（`backdrop-filter`）只用于导航栏和浮层，正文区保持干净
 - 动效用 spring 曲线，尊重 `prefers-reduced-motion`

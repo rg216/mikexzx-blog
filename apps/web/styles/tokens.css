@@ -4,7 +4,7 @@
  *
  * 断点（媒体查询里不能用 CSS 变量，各组件里直接写这几个值）：
  *   md  min-width: 46rem（≈736px）  平板：边距加大，文章标题放大
- *   lg  min-width: 70rem（≈1120px） 桌面：出现侧栏，正文字号 17 → 19px
+ *   lg  min-width: 70rem（≈1120px） 桌面：出现侧栏，文章标题放大
  * 用 rem 而不是 px：用户调大浏览器字号时，断点跟着后移，不会在大字号下硬塞进双栏。
  */
 
@@ -33,13 +33,14 @@
 
   /*
    * 阅读字号（文章正文）：界面元素继续用上面的 Dynamic Type；
-   * 长文阅读学 Newsroom，大屏上正文和标题放大（见下方 lg 断点）。
+   * 长文阅读学 Newsroom，大屏上标题放大（见下方 md / lg 断点）。
+   * 正文各屏幕都是 17px：试过桌面 19、18px，都偏大。
    */
-  --font-size-article: var(--font-size-body); /* 17 → lg 19 */
+  --font-size-article: var(--font-size-body); /* 17 */
   --font-size-article-title: var(--font-size-title1); /* 28 → md 40 → lg 48 */
   --font-size-article-h2: var(--font-size-title2); /* 22 → lg 24 */
   --font-size-article-h3: var(--font-size-title3); /* 20 */
-  --letter-spacing-article: normal; /* lg 时略放宽，同 Newsroom */
+  --letter-spacing-article: normal;
 
   --font-weight-regular: 400;
   --font-weight-semibold: 600;
@@ -76,7 +77,7 @@
    * 三层宽度：
    *   page    页面外框（导航栏、页脚、主栏 + 侧栏）
    *   wide    图片等"出血"元素，比正文宽，学 Newsroom 的图文混排
-   *   content 正文阅读宽度：19px 正文约 36 个汉字一行，17px 约 40 个
+   *   content 正文阅读宽度：17px 正文约 40 个汉字一行
    */
   --page-width: 75rem; /* 1200 */
   --wide-width: 54rem; /* 864 = page - sidebar - gap，有侧栏时恰好占满主栏 */
@@ -176,10 +177,8 @@
 /* ---------- 响应式：lg ---------- */
 @media (min-width: 70rem) {
   :root {
-    --font-size-article: 1.1875rem; /* 19 */
     --font-size-article-title: 3rem; /* 48 */
     --font-size-article-h2: 1.5rem; /* 24 */
-    --letter-spacing-article: 0.012em;
   }
 }
 
