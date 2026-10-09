@@ -20,8 +20,12 @@ const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>;
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  // 空字符串当作未设置（Vercel 里删除值后可能留下空串）
-  const cleaned = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== ""));
+  // 去掉首尾空白（从终端复制的值常带结尾换行，如 `openssl rand … | pbcopy`），空字符串当作未设置
+  const cleaned = Object.fromEntries(
+    Object.entries(source)
+      .map(([k, v]) => [k, v?.trim()] as const)
+      .filter(([, v]) => v !== undefined && v !== ""),
+  );
   const result = envSchema.safeParse(cleaned);
   if (!result.success) {
     throw new Error(`环境变量无效：\n${z.prettifyError(result.error)}`);
