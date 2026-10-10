@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEnv, storageConfigFrom } from "./env.ts";
+import { githubConfigFrom, loadEnv, storageConfigFrom } from "./env.ts";
 
 const base = { DATABASE_URL: "postgres://u:p@localhost:5432/db", WEB_ORIGIN: "https://blog.example/" };
 
@@ -51,6 +51,21 @@ describe("loadEnv", () => {
     it("rejects a partial config and names what is missing", () => {
       const { S3_PUBLIC_URL: _omitted, ...partial } = storage;
       expect(() => loadEnv({ ...base, ...partial })).toThrow(/S3_PUBLIC_URL/);
+    });
+  });
+
+  describe("GitHub login", () => {
+    it("derives the callback URL from WEB_ORIGIN", () => {
+      expect(githubConfigFrom(loadEnv({ ...base, GITHUB_CLIENT_ID: "id", GITHUB_CLIENT_SECRET: "secret" }))).toEqual({
+        clientId: "id",
+        clientSecret: "secret",
+        redirectUri: "https://blog.example/api/auth/github/callback",
+      });
+      expect(githubConfigFrom(loadEnv(base))).toBeNull();
+    });
+
+    it("rejects a client id without its secret", () => {
+      expect(() => loadEnv({ ...base, GITHUB_CLIENT_ID: "id" })).toThrow(/GITHUB_CLIENT_SECRET/);
     });
   });
 });

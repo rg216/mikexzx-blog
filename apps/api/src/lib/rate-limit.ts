@@ -81,4 +81,6 @@ export const rules = {
   views: { name: "views", limit: 60, windowSeconds: 60 },
   /** 搜索：按 IP（前端边输入边搜，已做防抖） */
   search: { name: "search", limit: 60, windowSeconds: 60 },
+  /** 发评论：按评论者，10 分钟 10 条 */
+  comment: { name: "comment", limit: 10, windowSeconds: 600 },
 } satisfies Record<string, RateRule>;

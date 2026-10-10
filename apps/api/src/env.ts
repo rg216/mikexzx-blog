@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { GitHubConfig } from "./auth/github.ts";
 import type { StorageConfig } from "./storage.ts";
 
 // 环境变量也是外部输入：启动时校验，缺了或格式不对直接退出，而不是跑到一半才报错。
@@ -32,6 +33,9 @@ const envSchema = z.object({
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_PUBLIC_URL: z.url({ protocol: /^https?$/ }).optional(),
+  /** 评论者的 GitHub 登录（GitHub App 的 Client ID 和 Client secret）。两项都设才启用；不设则评论区只读 */
+  GITHUB_CLIENT_ID: z.string().optional(),
+  GITHUB_CLIENT_SECRET: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 });
 
@@ -42,6 +46,10 @@ const checkedEnvSchema = envSchema.superRefine((env, ctx) => {
   // 只配了一部分多半是漏填，启动时就报出来，而不是等到上传时才失败
   if (missing.length > 0 && missing.length < storageKeys.length) {
     for (const key of missing) ctx.addIssue({ code: "custom", path: [key], message: "图片存储的配置不完整：S3_* 要么全部设置，要么全部不设" });
+  }
+  if (Boolean(env.GITHUB_CLIENT_ID) !== Boolean(env.GITHUB_CLIENT_SECRET)) {
+    const key = env.GITHUB_CLIENT_ID ? "GITHUB_CLIENT_SECRET" : "GITHUB_CLIENT_ID";
+    ctx.addIssue({ code: "custom", path: [key], message: "GitHub 登录的配置不完整：GITHUB_CLIENT_ID 和 GITHUB_CLIENT_SECRET 要一起设置" });
   }
 });
 export type Env = z.infer<typeof envSchema>;
@@ -57,6 +65,12 @@ export function storageConfigFrom(env: Env): StorageConfig | null {
     credentials: { accessKeyId: S3_ACCESS_KEY_ID, secretAccessKey: S3_SECRET_ACCESS_KEY },
     publicUrl: S3_PUBLIC_URL,
   };
+}
+
+/** GitHub 登录的配置；没有配置返回 null。回调地址固定为 <前端>/api/auth/github/callback（经前端代理，cookie 才是第一方的） */
+export function githubConfigFrom(env: Env): GitHubConfig | null {
+  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) return null;
+  return { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET, redirectUri: `${env.WEB_ORIGIN}/api/auth/github/callback` };
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {

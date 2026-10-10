@@ -4,6 +4,7 @@ import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { createAuthApi } from "@/lib/auth-api";
+import { wideOnlyClassName } from "./AdminNav";
 
 /** 退出登录：删除服务端 session，然后整页跳到登录页（丢弃页面上所有已登录状态）。 */
 export function LogoutButton() {
@@ -23,7 +24,7 @@ export function LogoutButton() {
   return (
     <Button variant="plain" busy={busy} onClick={logout}>
       <LogOut aria-hidden="true" />
-      退出登录
+      <span className={wideOnlyClassName}>退出登录</span>
     </Button>
   );
 }

@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import { PageLayout } from "@/components/PageLayout";
 import { RecentPosts } from "@/components/RecentPosts";
 import { SidebarSection } from "@/components/SidebarSection";
+import { Comments } from "@/components/comments/Comments";
 import { TagList } from "@/components/TagList";
 import { ViewCounter } from "@/components/ViewCounter";
 import { formatDate } from "@/lib/format";
@@ -86,6 +87,8 @@ export default async function PostPage({ params }: Props) {
 
         <div className={prose.prose} dangerouslySetInnerHTML={{ __html: html }} />
       </article>
+      {/* 评论在浏览器里加载，不进 ISR 页面（见 components/comments/Comments.tsx） */}
+      <Comments slug={post.slug} />
     </PageLayout>
   );
 }

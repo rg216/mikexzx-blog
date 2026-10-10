@@ -1,0 +1,218 @@
+/* 评论区和正文同宽、同样居中 */
+.section {
+  max-width: var(--content-width);
+  margin: var(--space-8) auto 0;
+  padding-top: var(--space-4);
+  border-top: 0.5px solid var(--color-separator);
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-bold);
+}
+
+.count {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+}
+
+.notice {
+  margin-bottom: var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  font-size: var(--font-size-subhead);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--hit-target);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.hint,
+.empty {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+}
+
+.empty {
+  margin-top: var(--space-3);
+}
+
+.login {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+/* ---------- 表单 ---------- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.formBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+.inlineButton {
+  font-size: var(--font-size-footnote);
+}
+
+.formActions {
+  display: inline-flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+/* ---------- 评论列表 ---------- */
+
+.threads,
+.replies {
+  padding: 0;
+  list-style: none;
+}
+
+.threads {
+  margin-top: var(--space-3);
+}
+
+.thread + .thread {
+  border-top: 0.5px solid var(--color-separator);
+}
+
+.thread {
+  padding-block: var(--space-2);
+}
+
+/* 楼中楼：缩进到头像右侧，和楼主的正文对齐 */
+.replies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-left: calc(2.5rem + var(--space-1-5));
+}
+
+.comment {
+  display: flex;
+  gap: var(--space-1-5);
+}
+
+.avatar {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--color-fill);
+}
+
+.replies .avatar {
+  width: 2rem;
+  height: 2rem;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-1);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+}
+
+.author {
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  text-decoration: none;
+}
+
+.author:hover {
+  text-decoration: underline;
+}
+
+.body {
+  margin-top: var(--space-0-5);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  overflow-wrap: anywhere;
+}
+
+.plain {
+  white-space: pre-wrap;
+}
+
+.body :global(p + p),
+.body :global(ul),
+.body :global(ol),
+.body :global(pre),
+.body :global(blockquote) {
+  margin-top: var(--space-1);
+}
+
+.body :global(ul),
+.body :global(ol) {
+  padding-left: var(--space-3);
+}
+
+.body :global(blockquote) {
+  padding-left: var(--space-1-5);
+  border-left: 3px solid var(--color-separator);
+  color: var(--color-secondary-label);
+}
+
+.body :global(code) {
+  font-family: var(--font-family-mono);
+  font-size: 0.9em;
+}
+
+.body :global(:not(pre) > code) {
+  padding: 0.1em 0.3em;
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+}
+
+.body :global(pre) {
+  padding: var(--space-1-5);
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  background: var(--color-secondary-background);
+}
+
+/* plain 按钮自带左右内边距，向左抵消，让"回复"和正文左边缘对齐 */
+.replyButton {
+  margin-left: calc(-1 * var(--space-1-5));
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}

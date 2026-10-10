@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { setupTestApp } from "./helpers.ts";
+import { githubUser, setupTestApp } from "./helpers.ts";
 
-const { request } = setupTestApp({ withRedis: true });
+const { request, createPost, loginCommenter } = setupTestApp({ withRedis: true });
 
 describe("rate limits on auth and admin endpoints", () => {
   it("limits passkey ceremonies per IP", async () => {
@@ -28,3 +28,16 @@ describe("rate limit on search", () => {
     expect((await search("203.0.113.8")).status).toBe(200);
   });
 });
+
+describe("rate limit on comments", () => {
+  it("limits each commenter to 10 comments per 10 minutes", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const cookie = await loginCommenter(githubUser(1, "spammer"));
+    const post = () => request("POST", "/posts/a/comments", { auth: false, useJar: false, headers: { cookie }, body: { body: "hi" } });
+    for (let i = 0; i < 10; i++) expect((await post()).status).toBe(201);
+    const limited = await post();
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("ratelimit-policy")).toBe('"comment";q=10;w=600');
+  });
+});
+

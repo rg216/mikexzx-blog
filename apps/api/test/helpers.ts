@@ -3,6 +3,7 @@ import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequest
 import { sql } from "drizzle-orm";
 import { afterAll, beforeEach } from "vitest";
 import { createAuthConfig } from "../src/auth/config.ts";
+import { codeChallengeFor, type GitHub, GitHubError, type GitHubUser } from "../src/auth/github.ts";
 import { createSession } from "../src/auth/sessions.ts";
 import type { WebAuthn } from "../src/auth/webauthn.ts";
 import { createApp } from "../src/create-app.ts";
@@ -132,6 +133,62 @@ export function authenticationResponse(
   };
 }
 
+// ---------- 假的 GitHub ----------
+
+/**
+ * 模拟 GitHub 的 OAuth：approve() 相当于用户在授权页点了"同意"，为授权页 URL 里的 code_challenge 签发一个 code。
+ * 换 token 时和真 GitHub 一样校验 code 只能用一次、code_verifier 必须与 challenge 对应（PKCE）。
+ */
+export function createFakeGitHub() {
+  let seq = 0;
+  const codes = new Map<string, { user: GitHubUser; challenge: string }>();
+  const tokens = new Map<string, GitHubUser>();
+  /** fetchUserByLogin 能查到的用户（按小写用户名） */
+  const directory = new Map<string, GitHubUser>();
+  let failNextExchange = false;
+
+  const github: GitHub = {
+    authorizeUrl: (state, codeVerifier) =>
+      `https://github.test/login/oauth/authorize?${new URLSearchParams({ state, code_challenge: codeChallengeFor(codeVerifier) })}`,
+    async exchangeCode(code, codeVerifier) {
+      const entry = codes.get(code);
+      codes.delete(code);
+      if (failNextExchange) {
+        failNextExchange = false;
+        throw new GitHubError("network down");
+      }
+      if (!entry || entry.challenge !== codeChallengeFor(codeVerifier)) throw new GitHubError("token exchange failed: bad_verification_code");
+      const token = `token-${code}`;
+      tokens.set(token, entry.user);
+      return token;
+    },
+    async fetchUser(token) {
+      const user = tokens.get(token);
+      if (!user) throw new GitHubError("GET /user: HTTP 401");
+      return user;
+    },
+    async fetchUserByLogin(login) {
+      return directory.get(login.toLowerCase()) ?? null;
+    },
+  };
+
+  function approve(authorizeUrl: string, user: GitHubUser): string {
+    const challenge = new URL(authorizeUrl).searchParams.get("code_challenge") ?? "";
+    const code = `code-${++seq}`;
+    codes.set(code, { user, challenge });
+    return code;
+  }
+
+  return { github, approve, directory, failNextExchange: () => (failNextExchange = true) };
+}
+
+export const githubUser = (id: number, login: string): GitHubUser => ({
+  id,
+  login,
+  name: null,
+  avatarUrl: `https://avatars.githubusercontent.com/u/${id}`,
+});
+
 // ---------- 测试 app 与客户端 ----------
 
 type RequestOptions = {
@@ -169,6 +226,7 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
   const redis: RedisProvider | null = withRedis ? createRedisProvider(process.env.TEST_REDIS_URL ?? "") : null;
   const storage = withStorage ? createTestStorage() : null;
   const fake = createFakeWebAuthn();
+  const fakeGitHub = createFakeGitHub();
   // 记录每次"通知前端失效缓存"的标签
   const revalidations: string[][] = [];
   const app = createApp({
@@ -180,6 +238,7 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
     },
     redis,
     storage,
+    github: fakeGitHub.github,
     cronSecret: CRON_SECRET,
   });
 
@@ -190,11 +249,12 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
   beforeEach(async () => {
     // RESTART IDENTITY：自增 id 也从 1 开始，测试里的 id 可预测
     await db.execute(
-      sql`TRUNCATE posts, tags, post_tags, images, users, passkeys, sessions, auth_challenges RESTART IDENTITY CASCADE`,
+      sql`TRUNCATE posts, tags, post_tags, images, users, passkeys, sessions, auth_challenges, comments, commenters, commenter_sessions, oauth_states RESTART IDENTITY CASCADE`,
     );
     jar.clear();
     adminCookie = null;
     fake.calls.length = 0;
+    fakeGitHub.directory.clear();
     revalidations.length = 0;
     if (redis) await (await redis()).flushDb();
   });
@@ -256,5 +316,21 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
     return res.body as { id: number; slug: string; publishedAt: string | null };
   }
 
-  return { db, app, redis, storage, request, createPost, adminSessionCookie, jar, calls: fake.calls, revalidations };
+  /**
+   * 以某个 GitHub 用户走完整的登录流程，返回评论者 cookie（从 jar 里取走，
+   * 这样同一个测试里可以有多个评论者，各自用 headers.cookie 传入）。
+   */
+  async function loginCommenter(user: GitHubUser, next = "/") {
+    const start = await request("GET", `/auth/github/start?next=${encodeURIComponent(next)}`, { auth: false });
+    const authorizeUrl = start.headers.get("location") ?? "";
+    const state = new URL(authorizeUrl).searchParams.get("state") ?? "";
+    const code = fakeGitHub.approve(authorizeUrl, user);
+    const callback = await request("GET", `/auth/github/callback?${new URLSearchParams({ code, state })}`, { auth: false });
+    const token = jar.get("__Host-commenter");
+    jar.delete("__Host-commenter");
+    if (!token) throw new Error(`login failed: ${callback.status} ${callback.headers.get("location")}`);
+    return `__Host-commenter=${token}`;
+  }
+
+  return { db, app, redis, storage, request, loginCommenter, fakeGitHub, createPost, adminSessionCookie, jar, calls: fake.calls, revalidations };
 }

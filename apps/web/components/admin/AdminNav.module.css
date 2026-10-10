@@ -59,6 +59,40 @@
   display: flex;
   padding: 0;
   list-style: none;
+  white-space: nowrap;
+}
+
+/*
+ * 窄屏放不下"后台"标记和所有文字：标记隐藏，链接内边距收窄，
+ * "查看网站""退出登录"只显示图标（文字视觉隐藏，读屏仍能读到）。
+ */
+@media not (min-width: 46rem) {
+  .badge {
+    display: none;
+  }
+
+  .links a {
+    padding-inline: var(--space-1);
+  }
+}
+
+.wideOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (min-width: 46rem) {
+  .wideOnly {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
 }
 
 /* 样式同 NavLink，外加一个"新窗口"小图标 */
@@ -83,4 +117,18 @@
 .externalIcon {
   width: 1em;
   height: 1em;
+}
+
+/* 待审核评论数：iOS 风格的小红点数字 */
+.count {
+  min-width: 1.25rem;
+  margin-left: var(--space-0-5);
+  padding: 0 var(--space-0-5);
+  border-radius: 999px;
+  background: var(--color-button-destructive);
+  color: var(--color-button-primary-label);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25rem;
+  text-align: center;
 }

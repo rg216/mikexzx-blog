@@ -1,4 +1,10 @@
 import {
+  type AdminComment,
+  type AdminCommenter,
+  adminCommenterSchema,
+  adminCommentSchema,
+  type CommenterTrust,
+  type CommentStatus,
   type AdminImage,
   adminImageSchema,
   type AdminPost,
@@ -104,6 +110,9 @@ export function redirectToLogin(): void {
 }
 
 const postListSchema = z.array(adminPostSchema);
+const commentListSchema = z.array(adminCommentSchema);
+const commenterListSchema = z.array(adminCommenterSchema);
+const pendingCountSchema = z.object({ count: z.int().nonnegative() });
 
 /**
  * 后台各接口共用的 JSON 客户端：发请求、把错误响应转成 AdminApiError、用 schema 校验响应。
@@ -180,6 +189,36 @@ export function createAdminApi(options: JsonClientOptions = {}) {
     /** 文件传到存储之后，请 API 核对并确认 */
     async confirmImage(id: number): Promise<AdminImage> {
       return parseJson(await request("POST", `/images/${id}/confirm`), adminImageSchema);
+    },
+
+    async listComments(status: CommentStatus): Promise<AdminComment[]> {
+      return parseJson(await request("GET", `/comments?status=${status}`), commentListSchema);
+    },
+
+    async pendingCommentCount(): Promise<number> {
+      return (await parseJson(await request("GET", "/comments/pending-count"), pendingCountSchema)).count;
+    },
+
+    async moderateComment(id: number, status: "approved" | "rejected"): Promise<void> {
+      await request("PATCH", `/comments/${id}`, { status });
+    },
+
+    async deleteComment(id: number): Promise<void> {
+      await request("DELETE", `/comments/${id}`);
+    },
+
+    async listCommenters(): Promise<AdminCommenter[]> {
+      return parseJson(await request("GET", "/commenters"), commenterListSchema);
+    },
+
+    /** 加入白名单会同时通过他所有待审核的评论；拉黑会拒绝它们 */
+    async setCommenterTrust(id: number, trust: CommenterTrust): Promise<AdminCommenter> {
+      return parseJson(await request("PATCH", `/commenters/${id}`, { trust }), adminCommenterSchema);
+    },
+
+    /** 按 GitHub 用户名加入白名单 */
+    async addTrustedCommenter(login: string): Promise<AdminCommenter> {
+      return parseJson(await request("POST", "/commenters", { login }), adminCommenterSchema);
     },
   };
 }

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { bigint, boolean, check, customType, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 // 列名由 casing: "snake_case" 自动转换：contentMd → content_md。
@@ -171,3 +172,91 @@ export const authChallenges = pgTable("auth_challenges", {
   userId: integer().references(() => users.id, { onDelete: "cascade" }),
   expiresAt: timestamptz().notNull(),
 });
+
+// ---------- 评论（v4c）：评论者用 GitHub 登录，与管理员的 Passkey 体系完全分开 ----------
+
+export const commenterTrust = pgEnum("commenter_trust", ["default", "trusted", "blocked"]);
+
+/** 评论者（GitHub 用户）。资料在每次登录时从 GitHub 更新；管理员也可以按用户名预先把人加进白名单 */
+export const commenters = pgTable("commenters", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  // GitHub 的数字 id 永不改变；login（用户名）可以改，所以不用它做唯一标识
+  githubId: bigint({ mode: "number" }).notNull().unique(),
+  login: text().notNull(),
+  name: text(),
+  avatarUrl: text().notNull(),
+  trust: commenterTrust().notNull().default("default"),
+  createdAt: timestamptz().notNull().defaultNow(),
+  updatedAt: timestamptz()
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+/**
+ * 评论者的登录状态。和管理员的 sessions 分表、分 cookie：
+ * 评论者 session 被盗最多冒名发评论，管理员 session 被盗能改全站——两者不能有任何混用的可能。
+ */
+export const commenterSessions = pgTable(
+  "commenter_sessions",
+  {
+    // 同 sessions：只存 SHA-256(token)
+    id: text().primaryKey(),
+    commenterId: integer()
+      .notNull()
+      .references(() => commenters.id, { onDelete: "cascade" }),
+    createdAt: timestamptz().notNull().defaultNow(),
+    expiresAt: timestamptz().notNull(),
+    lastSeenAt: timestamptz().notNull().defaultNow(),
+  },
+  (t) => [index("commenter_sessions_commenter_id_idx").on(t.commenterId)],
+);
+
+/** OAuth 登录进行中的状态：state（防 CSRF）、PKCE 的 code_verifier、登录后回到哪里。一次性，10 分钟过期 */
+export const oauthStates = pgTable("oauth_states", {
+  // 即 OAuth 的 state 参数，同时放在浏览器的短期 cookie 里，回调时两者必须一致
+  id: text().primaryKey(),
+  codeVerifier: text().notNull(),
+  returnTo: text().notNull(),
+  expiresAt: timestamptz().notNull(),
+});
+
+export const commentStatus = pgEnum("comment_status", ["pending", "approved", "rejected"]);
+
+/**
+ * 评论。楼中楼只有两层：root_id 指向顶层评论（顶层评论自己为 NULL），parent_id 指向直接回复的那条。
+ * 删除顶层评论连同整楼删除；删除楼里的某条回复，回复它的评论保留（只是不再显示"回复 @谁"）。
+ */
+export const comments = pgTable(
+  "comments",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    postId: integer()
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    commenterId: integer()
+      .notNull()
+      .references(() => commenters.id, { onDelete: "cascade" }),
+    rootId: integer().references((): AnyPgColumn => comments.id, { onDelete: "cascade" }),
+    parentId: integer().references((): AnyPgColumn => comments.id, { onDelete: "set null" }),
+    body: text().notNull(),
+    status: commentStatus().notNull().default("pending"),
+    createdAt: timestamptz().notNull().defaultNow(),
+    updatedAt: timestamptz()
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    // 顶层评论不能有 parent
+    check("comments_root_has_no_parent", sql`${t.rootId} IS NOT NULL OR ${t.parentId} IS NULL`),
+    check("comments_body_length", sql`char_length(${t.body}) BETWEEN 1 AND 5000`),
+    // 文章页按时间列出评论
+    index("comments_post_idx").on(t.postId, t.createdAt),
+    // 后台的审核队列
+    index("comments_pending_idx")
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+  ],
+);
+

@@ -66,6 +66,17 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 环境变量 `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL`，要么全设要么全不设
 - 编辑器：按钮、粘贴、拖放都能插入；上传期间插入占位符，完成后替换成 `![](url)`（单独成段，渲染为 figure）；有图片在上传时不允许保存
 
+## 评论（v4c）
+- 评论者用 GitHub 登录（GitHub App，不申请任何权限，只读公开资料；一个 App 配本地和线上两个回调地址），与管理员的 Passkey 体系完全分开：
+  - 独立的表（`commenters`、`commenter_sessions`）和 cookie（`__Host-commenter`）；评论者 session 访问不了 `/admin/*`
+  - OAuth 授权码 + PKCE（S256）；state 存在 `oauth_states`（一次性、10 分钟）并同时放进 `__Host-oauth` cookie（SameSite=Lax，从 GitHub 跳回是跨站导航），回调时两者必须一致，防登录 CSRF
+  - access token 用完即弃；登录后跳回的地址只接受本站路径（`lib/safe-path.ts`），失败时带 `?login=cancelled|failed` 回原页面
+- 审核规则是白名单制：`trust` 为 trusted 的直接显示，default 的每条都待审核，blocked 的不能评论。加入白名单会通过其所有待审核评论，拉黑会拒绝它们；可以按 GitHub 用户名预先加入（API 查 GitHub 公开资料）
+- 楼中楼两层：`root_id` 指向顶层评论，`parent_id` 指向直接回复的那条（"回复 @谁"）；只能回复同一篇文章里已显示的评论；顶层评论不可见时整楼不显示，删除顶层评论连同整楼删除
+- 评论由浏览器请求（`GET /posts/:slug/comments`，`Cache-Control: private, no-store`），不进 ISR 页面；自己待审核的评论自己可见。滚动到评论区附近才加载，Markdown 渲染器按需加载
+- 评论 Markdown 用比文章更严的白名单（`lib/comment-markdown.ts`）：不允许图片（追踪像素）和标题，链接加 `rel="nofollow ugc"`
+- 发评论按评论者限流（10 分钟 10 条）；后台 `/admin/comments` 审核，导航栏显示待审核数
+
 ## 全文搜索（v4b）
 - Postgres tsvector，分词在应用里做（`apps/api/src/lib/search-text.ts`，索引和查询共用）：Neon 没有中文分词扩展，内置分词器又不切中文
   - 中日韩文字切成单字 + 二元组，查询时二元组之间 AND（不用短语查询 `<->`：位置上限 16383，长文后半部分会悄悄搜不到）；其他文字按词切、前缀匹配；先 NFKC + 小写
@@ -102,7 +113,8 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`
 - `posts`：slug, title, content_md, excerpt, status (draft | published), published_at, search_vector
 - `tags` + `post_tags`
-- `comments`：post_id, user_id, parent_id（楼中楼）, body, status（审核）
+- `commenters`（GitHub 用户，trust：default | trusted | blocked）、`commenter_sessions`、`oauth_states`
+- `comments`：post_id, commenter_id, root_id / parent_id（楼中楼）, body, status（pending | approved | rejected）
 - `post_views`
 - `images`：key, content_type, size, confirmed_at（NULL 为待确认）
 
@@ -113,7 +125,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - challenge 一次性、5 分钟过期（DELETE … RETURNING 原子取出）；要求用户验证（UV）与可发现凭证
   - 首次设置 / 全部设备丢失后的恢复：临时设置 `ADMIN_SETUP_TOKEN` 允许未登录注册 Passkey，用完立即删除；不能删除最后一个 Passkey
   - Passkey 绑定 RP ID（前端域名）：换域名需要重新注册
-- 评论者：GitHub OAuth
+- 评论者：GitHub 登录（见"评论（v4c）"）
 - 用户提交的 Markdown 渲染前必须 sanitize
 - 写接口加限流
 
@@ -122,8 +134,8 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - [x] v1 API：Hono + Drizzle + Postgres，posts CRUD，zod 校验，Vitest（API 部署在 Vercel 第二个项目，Root Directory `apps/api`：https://mikexzx-blog-api.vercel.app；数据库 Neon us-east-1，迁移在本地用 `apps/api/.env.neon` 直连执行；前端项目设 `API_URL`）
 - [x] v2 管理后台：登录、编辑器、草稿 / 发布、图片上传（图片存 Cloudflare R2）
 - [x] v3 渲染与缓存：ISR；发布文章时由 API 通知前端 revalidate（两个 Vercel 项目共享 `REVALIDATE_SECRET`）
-- [ ] v4 评论（OAuth、楼中楼、审核）、阅读数（Redis）、全文搜索（Postgres tsvector）
+- [x] v4 评论（OAuth、楼中楼、审核）、阅读数（Redis）、全文搜索（Postgres tsvector）
   - [x] v4a 限流与阅读数（线上 Redis 用 Vercel Storage 里的 Upstash，API 项目设 `REDIS_URL`（rediss://）和 `CRON_SECRET`）
   - [x] v4b 全文搜索
-  - [ ] v4c 评论
+  - [x] v4c 评论（API 项目设 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`）
 - [ ] v5 工程化：Docker 镜像、GitHub Actions、VPS + Caddy 部署、pino 日志、Sentry、Playwright

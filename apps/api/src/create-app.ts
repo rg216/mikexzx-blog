@@ -8,10 +8,13 @@ import type { Db } from "./db/client.ts";
 import { errorBody, HttpError, pgErrorCode } from "./lib/errors.ts";
 import { createRateLimiter, unlimited } from "./lib/rate-limit.ts";
 import { noopRevalidator, type Revalidator } from "./lib/revalidate.ts";
-import { type AuthEnv, loadSession, requireSameOrigin } from "./middleware/auth.ts";
+import { type AuthEnv, loadCommenter, loadSession, requireSameOrigin } from "./middleware/auth.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import type { RedisProvider } from "./redis.ts";
+import type { GitHub } from "./auth/github.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { commenterAuthRoutes } from "./routes/commenter-auth.ts";
+import { commentRoutes } from "./routes/comments.ts";
 import { internalRoutes } from "./routes/internal.ts";
 import { publicRoutes } from "./routes/public.ts";
 import { searchRoutes } from "./routes/search.ts";
@@ -29,6 +32,8 @@ type AppOptions = {
   redis?: RedisProvider | null;
   /** 图片上传用的对象存储；不传则上传接口返回 503 */
   storage?: ObjectStorage | null;
+  /** 评论者的 GitHub 登录；不传则评论区只读 */
+  github?: GitHub | null;
   /** 定时任务接口的密钥；不传则定时任务接口返回 503 */
   cronSecret?: string;
   /** 测试里关掉，避免刷屏 */
@@ -43,6 +48,7 @@ export function createApp({
   revalidate = noopRevalidator,
   redis = null,
   storage = null,
+  github = null,
   cronSecret,
   logRequests = false,
 }: AppOptions) {
@@ -54,13 +60,16 @@ export function createApp({
   // 所有写请求先校验 Origin（CSRF），再加载 session
   app.use(requireSameOrigin(auth));
   app.use(loadSession(db, auth));
+  app.use(loadCommenter(db, auth));
 
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/", publicRoutes(db));
   app.route("/", viewRoutes(db, redis, limiter));
   app.route("/", searchRoutes(db, limiter));
+  app.route("/", commentRoutes(db, limiter));
+  app.route("/auth/github", commenterAuthRoutes(db, auth, github, limiter));
   app.route("/auth", authRoutes(db, auth, webauthn, limiter));
-  app.route("/admin", adminRoutes(db, revalidate, limiter, storage));
+  app.route("/admin", adminRoutes(db, revalidate, limiter, storage, github));
   app.route("/internal", internalRoutes(db, redis, storage, cronSecret));
 
   app.notFound((c) => c.json(errorBody("not_found", "接口不存在"), 404));
