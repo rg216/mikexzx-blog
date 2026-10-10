@@ -1,4 +1,5 @@
 import {
+  cacheTags,
   type Post,
   postSchema,
   type PostSummary,
@@ -12,6 +13,9 @@ import { apiGet } from "./api";
 /*
  * 数据访问层：调用 apps/api，返回 @blog/shared 的类型。
  * v0 时这里读本地假数据，函数签名一开始就是异步的，所以换成 HTTP 后页面代码不用改。
+ *
+ * 每份数据都打上缓存标签：列表类用 posts，单篇用 post:<slug>。
+ * 文章页的侧栏也用到了列表，所以任何文章的变化都会让所有文章页失效——对小博客来说正好。
  */
 
 export type PublishedPost = Post & { status: "published"; publishedAt: string };
@@ -22,7 +26,7 @@ function isPublished(post: Post): post is PublishedPost {
 
 /** 最新的一页已发布文章。 */
 export async function listPublishedPosts({ limit = 20 }: { limit?: number } = {}): Promise<PostSummary[]> {
-  const page = await apiGet(`/posts?limit=${limit}`, postSummaryPageSchema);
+  const page = await apiGet(`/posts?limit=${limit}`, postSummaryPageSchema, { tags: [cacheTags.posts] });
   return page.items;
 }
 
@@ -33,7 +37,7 @@ export async function listAllPublishedPosts(): Promise<PostSummary[]> {
   do {
     const params = new URLSearchParams({ limit: "50" });
     if (cursor) params.set("cursor", cursor);
-    const page = await apiGet(`/posts?${params}`, postSummaryPageSchema);
+    const page = await apiGet(`/posts?${params}`, postSummaryPageSchema, { tags: [cacheTags.posts] });
     all.push(...page.items);
     cursor = page.nextCursor;
   } while (cursor);
@@ -42,11 +46,14 @@ export async function listAllPublishedPosts(): Promise<PostSummary[]> {
 
 /** 按 slug 取已发布文章；草稿或不存在都返回 null（API 对两者都返回 404，不泄露草稿是否存在）。 */
 export async function getPublishedPost(slug: string): Promise<PublishedPost | null> {
-  const post = await apiGet(`/posts/${encodeURIComponent(slug)}`, postSchema, { notFoundAsNull: true });
+  const post = await apiGet(`/posts/${encodeURIComponent(slug)}`, postSchema, {
+    notFoundAsNull: true,
+    tags: [cacheTags.post(slug)],
+  });
   return post && isPublished(post) ? post : null;
 }
 
 /** 已发布文章用到的标签及篇数。 */
 export async function listTags(): Promise<TagWithCount[]> {
-  return apiGet("/tags", z.array(tagWithCountSchema));
+  return apiGet("/tags", z.array(tagWithCountSchema), { tags: [cacheTags.posts] });
 }

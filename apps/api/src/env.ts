@@ -15,6 +15,8 @@ const envSchema = z.object({
    * 用完立即从环境变量里删掉，入口随之关闭。
    */
   ADMIN_SETUP_TOKEN: z.string().min(32, "ADMIN_SETUP_TOKEN 至少 32 个字符（openssl rand -base64 32）").optional(),
+  /** 与前端共享的密钥：写入文章后调用前端 /hooks/revalidate 时使用。未设置则不通知（前端靠定时刷新） */
+  REVALIDATE_SECRET: z.string().min(32, "REVALIDATE_SECRET 至少 32 个字符（openssl rand -base64 32）").optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 });
 export type Env = z.infer<typeof envSchema>;

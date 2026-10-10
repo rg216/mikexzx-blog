@@ -35,6 +35,24 @@ describe("listPublishedPosts", () => {
   });
 });
 
+describe("caching", () => {
+  it("tags list data with posts and single posts with post:<slug>, with an hourly fallback", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ items: [], nextCursor: null }))
+      .mockResolvedValueOnce(json({}, 404))
+      .mockResolvedValueOnce(json([]));
+    await listPublishedPosts();
+    await getPublishedPost("hello");
+    await listTags();
+    const nextOptions = fetchMock.mock.calls.map(([, init]) => init?.next);
+    expect(nextOptions).toEqual([
+      { revalidate: 3600, tags: ["posts"] },
+      { revalidate: 3600, tags: ["post:hello"] },
+      { revalidate: 3600, tags: ["posts"] },
+    ]);
+  });
+});
+
 describe("listAllPublishedPosts", () => {
   it("follows the cursor until the last page", async () => {
     fetchMock

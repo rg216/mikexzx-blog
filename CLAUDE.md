@@ -47,6 +47,12 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 业务不变量尽量同时落在数据库约束上（如"已发布必须有发布时间"的 CHECK）
 - 测试连真实 Postgres，不 mock 数据库
 
+## 渲染与缓存（v3）
+- 前台页面是 ISR：构建时预生成，新 slug 首次访问时生成；数据请求带 `next: { revalidate: 3600, tags }`
+- 缓存标签定义在 `@blog/shared` 的 `cacheTags`：列表类 `posts`，单篇 `post:<slug>`
+- API 写入文章后（`tagsForChange`：只要写入前后有一边是已发布）调用前端 `POST /hooks/revalidate`（Bearer `REVALIDATE_SECRET`，两个项目共享），前端 `revalidateTag(tag, { expire: 0 })`
+- 通知失败只记日志、不影响写入；一小时定时刷新兜底。`/hooks` 不能放在 `/api` 下（`/api/*` 整体代理给 API）
+
 ## 设计规范（Apple HIG 的 Web 翻译）
 - 样式只引用 design tokens（CSS 变量），不写死颜色、字号、间距
 - 字体用系统字体栈：`-apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", sans-serif`（Apple 设备上英文即为 San Francisco）；CJK 正文行高 1.6（参考 Newsroom 的约 1.45 与常规 1.7 之间）

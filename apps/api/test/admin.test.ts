@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { setupTestApp, WEB_ORIGIN } from "./helpers.ts";
 
-const { app, request, createPost, adminSessionCookie } = setupTestApp();
+const { app, request, createPost, adminSessionCookie, revalidations } = setupTestApp();
 
 describe("authentication", () => {
   it("rejects requests without a session", async () => {
@@ -188,3 +188,44 @@ async function fetchRaw(method: string, path: string, rawBody: string) {
     body: rawBody,
   });
 }
+
+describe("revalidating the public site", () => {
+  it("does not notify for draft-only changes", async () => {
+    const { id } = await createPost({ slug: "draft" });
+    await request("PATCH", `/admin/posts/${id}`, { body: { title: "still a draft" } });
+    await request("DELETE", `/admin/posts/${id}`);
+    expect(revalidations).toEqual([]);
+  });
+
+  it("notifies when a post is published, edited, renamed, unpublished and deleted", async () => {
+    const { id } = await createPost({ slug: "a" });
+    await request("PATCH", `/admin/posts/${id}`, { body: { status: "published" } });
+    await request("PATCH", `/admin/posts/${id}`, { body: { title: "edited" } });
+    await request("PATCH", `/admin/posts/${id}`, { body: { slug: "b" } });
+    await request("PATCH", `/admin/posts/${id}`, { body: { status: "draft" } });
+    await request("PATCH", `/admin/posts/${id}`, { body: { status: "published" } });
+    await request("DELETE", `/admin/posts/${id}`);
+
+    expect(revalidations).toEqual([
+      ["posts", "post:a"], // 发布
+      ["posts", "post:a"], // 编辑已发布的文章
+      ["posts", "post:a", "post:b"], // 改 slug：旧地址也要失效（变成 404）
+      ["posts", "post:b"], // 撤回为草稿
+      ["posts", "post:b"], // 重新发布
+      ["posts", "post:b"], // 删除
+    ]);
+  });
+
+  it("notifies when a post is created as published", async () => {
+    await createPost({ slug: "live", status: "published" });
+    expect(revalidations).toEqual([["posts", "post:live"]]);
+  });
+
+  it("does not notify when the write fails", async () => {
+    await createPost({ slug: "taken", status: "published" });
+    revalidations.length = 0;
+    await request("POST", "/admin/posts", { body: { slug: "taken", title: "x", contentMd: "x", status: "published" } });
+    await request("PATCH", "/admin/posts/999", { body: { title: "x" } });
+    expect(revalidations).toEqual([]);
+  });
+});

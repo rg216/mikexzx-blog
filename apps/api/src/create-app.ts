@@ -6,6 +6,7 @@ import type { AuthConfig } from "./auth/config.ts";
 import { simpleWebAuthn, type WebAuthn } from "./auth/webauthn.ts";
 import type { Db } from "./db/client.ts";
 import { errorBody, HttpError, pgErrorCode } from "./lib/errors.ts";
+import { noopRevalidator, type Revalidator } from "./lib/revalidate.ts";
 import { type AuthEnv, loadSession, requireSameOrigin } from "./middleware/auth.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
@@ -16,12 +17,14 @@ type AppOptions = {
   auth: AuthConfig;
   /** 测试时替换成假实现；默认用 SimpleWebAuthn */
   webauthn?: WebAuthn;
+  /** 写入文章后通知前端失效缓存；默认不通知 */
+  revalidate?: Revalidator;
   /** 测试里关掉，避免刷屏 */
   logRequests?: boolean;
 };
 
 /** 组装应用。依赖从外面传入（而不是在模块里直接连库），测试时可以换成测试库。 */
-export function createApp({ db, auth, webauthn = simpleWebAuthn, logRequests = false }: AppOptions) {
+export function createApp({ db, auth, webauthn = simpleWebAuthn, revalidate = noopRevalidator, logRequests = false }: AppOptions) {
   const app = new Hono<AuthEnv>();
 
   if (logRequests) app.use(logger());
@@ -33,7 +36,7 @@ export function createApp({ db, auth, webauthn = simpleWebAuthn, logRequests = f
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/", publicRoutes(db));
   app.route("/auth", authRoutes(db, auth, webauthn));
-  app.route("/admin", adminRoutes(db));
+  app.route("/admin", adminRoutes(db, revalidate));
 
   app.notFound((c) => c.json(errorBody("not_found", "接口不存在"), 404));
 

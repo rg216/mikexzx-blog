@@ -148,7 +148,16 @@ export function setupTestApp() {
   if (!url) throw new Error("TEST_DATABASE_URL 未设置");
   const { db, pool } = createDb(url);
   const fake = createFakeWebAuthn();
-  const app = createApp({ db, auth: createAuthConfig({ webOrigin: WEB_ORIGIN, setupToken: SETUP_TOKEN }), webauthn: fake.webauthn });
+  // 记录每次"通知前端失效缓存"的标签
+  const revalidations: string[][] = [];
+  const app = createApp({
+    db,
+    auth: createAuthConfig({ webOrigin: WEB_ORIGIN, setupToken: SETUP_TOKEN }),
+    webauthn: fake.webauthn,
+    revalidate: async (tags) => {
+      revalidations.push(tags);
+    },
+  });
 
   // 简易 cookie jar：像浏览器一样保存 Set-Cookie，并在后续请求里带上
   const jar = new Map<string, string>();
@@ -162,6 +171,7 @@ export function setupTestApp() {
     jar.clear();
     adminCookie = null;
     fake.calls.length = 0;
+    revalidations.length = 0;
   });
   afterAll(() => pool.end());
 
@@ -218,5 +228,5 @@ export function setupTestApp() {
     return res.body as { id: number; slug: string; publishedAt: string | null };
   }
 
-  return { db, app, request, createPost, adminSessionCookie, jar, calls: fake.calls };
+  return { db, app, request, createPost, adminSessionCookie, jar, calls: fake.calls, revalidations };
 }

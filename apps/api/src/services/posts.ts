@@ -206,8 +206,14 @@ export async function createPost(db: Db, data: CreateData): Promise<AdminPost> {
   });
 }
 
-/** 部分更新；文章不存在返回 null。 */
-export async function updatePost(db: Db, id: number, data: UpdateData): Promise<AdminPost | null> {
+export type PublicState = { slug: string; status: AdminPost["status"] };
+
+/** 部分更新；文章不存在返回 null。同时返回修改前的 slug / 状态（判断前台哪些缓存要失效）。 */
+export async function updatePost(
+  db: Db,
+  id: number,
+  data: UpdateData,
+): Promise<{ post: AdminPost; before: PublicState } | null> {
   return db.transaction(async (tx) => {
     // FOR UPDATE 锁住这一行：两个请求同时"首次发布"时，只有一个会写入发布时间
     const [current] = await tx.select().from(posts).where(eq(posts.id, id)).for("update");
@@ -229,12 +235,14 @@ export async function updatePost(db: Db, id: number, data: UpdateData): Promise<
       .where(eq(posts.id, id));
 
     if (newTags !== undefined) await replaceTags(tx, id, newTags);
-    return getPostById(tx, id);
+    const post = await getPostById(tx, id);
+    if (!post) throw new Error("updated post not found");
+    return { post, before: { slug: current.slug, status: current.status } };
   });
 }
 
-/** 删除文章（关联的 post_tags 由外键级联删除）。返回是否真的删除了。 */
-export async function deletePost(db: Db, id: number): Promise<boolean> {
-  const deleted = await db.delete(posts).where(eq(posts.id, id)).returning({ id: posts.id });
-  return deleted.length > 0;
+/** 删除文章（关联的 post_tags 由外键级联删除）。返回被删文章的 slug / 状态，不存在返回 null。 */
+export async function deletePost(db: Db, id: number): Promise<PublicState | null> {
+  const [deleted] = await db.delete(posts).where(eq(posts.id, id)).returning({ slug: posts.slug, status: posts.status });
+  return deleted ?? null;
 }

@@ -1,3 +1,4 @@
+import { slugSchema } from "@blog/shared";
 import { ChevronLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -14,18 +15,25 @@ import styles from "./page.module.css";
 
 type Props = { params: Promise<{ slug: string }> };
 
-// v0 全部静态生成：构建时就知道所有 slug，其余路径一律 404。
-// v3 引入 ISR 后，新发布的文章需要按需生成，届时改为 true。
-export const dynamicParams = false;
+// ISR：构建时预生成已有文章；之后新发布的 slug 在第一次被访问时生成并缓存（dynamicParams 默认为 true），
+// 不用重新部署。内容更新靠 API 写入后按标签通知失效（见 lib/posts.ts、app/hooks/revalidate）。
 
 export async function generateStaticParams() {
   const posts = await listAllPublishedPosts();
   return posts.map((post) => ({ slug: post.slug }));
 }
 
+/**
+ * 格式不合法的 slug 不可能存在：直接 404，不请求 API——
+ * 否则任何人都能用随意构造的地址让服务器不断去请求 API。
+ */
+async function findPost(slug: string) {
+  return slugSchema.safeParse(slug).success ? getPublishedPost(slug) : null;
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const post = await getPublishedPost(slug);
+  const post = await findPost(slug);
   if (!post) return {};
 
   return {
@@ -42,7 +50,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function PostPage({ params }: Props) {
   const { slug } = await params;
-  const post = await getPublishedPost(slug);
+  const post = await findPost(slug);
   if (!post) notFound();
 
   const [html, allPosts] = await Promise.all([

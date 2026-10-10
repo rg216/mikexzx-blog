@@ -5,6 +5,7 @@ import { createAuthConfig } from "./auth/config.ts";
 import { createApp } from "./create-app.ts";
 import { createDb } from "./db/client.ts";
 import { loadEnv } from "./env.ts";
+import { createRevalidator } from "./lib/revalidate.ts";
 import type { AuthEnv } from "./middleware/auth.ts";
 
 /*
@@ -19,6 +20,9 @@ export const { db, pool } = createDb(env.DATABASE_URL);
 const app = createApp({
   db,
   auth: createAuthConfig({ webOrigin: env.WEB_ORIGIN, setupToken: env.ADMIN_SETUP_TOKEN }),
+  ...(env.REVALIDATE_SECRET
+    ? { revalidate: createRevalidator({ url: `${env.WEB_ORIGIN}/hooks/revalidate`, secret: env.REVALIDATE_SECRET }) }
+    : {}),
   logRequests: true,
 }) satisfies Hono<AuthEnv>;
 export default app;
