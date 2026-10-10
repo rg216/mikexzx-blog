@@ -74,6 +74,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - access token 用完即弃；登录后跳回的地址只接受本站路径（`lib/safe-path.ts`），失败时带 `?login=cancelled|failed` 回原页面
 - 审核规则是白名单制：`trust` 为 trusted 的直接显示，default 的每条都待审核，blocked 的不能评论。加入白名单会通过其所有待审核评论，拉黑会拒绝它们；可以按 GitHub 用户名预先加入（API 查 GitHub 公开资料）
 - 楼中楼两层：`root_id` 指向顶层评论，`parent_id` 指向直接回复的那条（"回复 @谁"）；只能回复同一篇文章里已显示的评论；顶层评论不可见时整楼不显示，删除顶层评论连同整楼删除
+- 作者可以删除自己的评论（被拉黑的也可以）：清空正文、记下 `deleted_at`，不删行；删掉的回复不显示，删掉的楼主有回复时留"此评论已被作者删除"占位。编辑规则见 `canEditComment`（shared）：白名单随时可改，其他人只能在审核通过前改（防止过审后改成广告），显示"已编辑"
 - 评论由浏览器请求（`GET /posts/:slug/comments`，`Cache-Control: private, no-store`），不进 ISR 页面；自己待审核的评论自己可见。滚动到评论区附近才加载，Markdown 渲染器按需加载
 - 评论 Markdown 用比文章更严的白名单（`lib/comment-markdown.ts`）：不允许图片（追踪像素）和标题，链接加 `rel="nofollow ugc"`
 - 发评论按评论者限流（10 分钟 10 条）；后台 `/admin/comments` 审核，导航栏显示待审核数
@@ -140,3 +141,4 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - [x] v4b 全文搜索
   - [x] v4c 评论（API 项目设 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`）
 - [ ] v5 工程化：Docker 镜像、GitHub Actions、VPS + Caddy 部署、pino 日志、Sentry、Playwright
+- [ ] v6 收款：Stripe / PayPal（待定：收款场景——打赏 / 付费文章 / 订阅；收款账户主体所在地决定能用哪家）

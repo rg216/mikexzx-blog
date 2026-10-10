@@ -246,11 +246,16 @@ export const comments = pgTable(
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
+    // 作者最后一次编辑的时间（前台显示"已编辑"）
+    editedAt: timestamptz(),
+    // 作者自己删除：清空正文、保留这一行——一楼的第一条被删后，楼里别人的回复还要挂在它下面
+    deletedAt: timestamptz(),
   },
   (t) => [
     // 顶层评论不能有 parent
     check("comments_root_has_no_parent", sql`${t.rootId} IS NOT NULL OR ${t.parentId} IS NULL`),
-    check("comments_body_length", sql`char_length(${t.body}) BETWEEN 1 AND 5000`),
+    // 作者删除后正文被清空，其余时候 1 到 5000 字
+    check("comments_body_length", sql`${t.deletedAt} IS NOT NULL OR char_length(${t.body}) BETWEEN 1 AND 5000`),
     // 文章页按时间列出评论
     index("comments_post_idx").on(t.postId, t.createdAt),
     // 后台的审核队列

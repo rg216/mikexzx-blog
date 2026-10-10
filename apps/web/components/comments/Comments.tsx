@@ -1,11 +1,12 @@
 "use client";
 
-import type { CommenterMe, CommentList, PublicComment } from "@blog/shared";
+import { canEditComment, type CommenterMe, type CommentList, type PublicComment } from "@blog/shared";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Banner } from "@/components/ui/Banner";
 import { Button, buttonClassName } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Spinner } from "@/components/ui/Spinner";
 import { CommentApiError, commentsApi, githubLoginHref, loginResultMessage } from "@/lib/comments-api";
 import { formatDate } from "@/lib/format";
@@ -13,6 +14,7 @@ import styles from "./Comments.module.css";
 import { CommentForm } from "./CommentForm";
 
 type Render = (markdown: string) => string;
+type Me = NonNullable<CommenterMe["commenter"]>;
 type Data = { me: CommenterMe; list: CommentList };
 type ReplyTarget = { threadId: number; parentId: number; login: string };
 
@@ -23,16 +25,32 @@ function avatarSrc(url: string, size: number): string {
   return src.toString();
 }
 
-function CommentItem({
-  comment,
-  render,
-  onReply,
-}: {
+type ItemProps = {
   comment: PublicComment;
   render: Render | null;
+  me: Me | null;
+  editing: boolean;
   onReply?: (() => void) | undefined;
-}) {
+  onEdit: () => void;
+  onEditDone: () => void;
+  onCancelEdit: () => void;
+  onDelete: () => void;
+};
+
+function CommentItem({ comment, render, me, editing, onReply, onEdit, onEditDone, onCancelEdit, onDelete }: ItemProps) {
   const { author } = comment;
+
+  // 作者自己删除了、但下面还有回复的楼主：只留一个占位
+  if (!author) {
+    return (
+      <article className={styles.comment}>
+        <span className={styles.avatar} aria-hidden="true" />
+        <p className={`${styles.main} ${styles.deleted}`}>此评论已被作者删除。</p>
+      </article>
+    );
+  }
+
+  const editable = comment.mine && me !== null && canEditComment(me.trust, comment.status);
   return (
     <article className={styles.comment}>
       {/* GitHub 头像已用 ?s= 取了合适的尺寸；经 next/image 再优化一遍只会多消耗 Vercel 的图片优化额度 */}
@@ -45,18 +63,51 @@ function CommentItem({
           </a>
           {comment.replyTo && <span>回复 @{comment.replyTo.login}</span>}
           <time dateTime={comment.createdAt}>{formatDate(comment.createdAt)}</time>
+          {comment.editedAt && (
+            <span title={`编辑于 ${formatDate(comment.editedAt)}`}>已编辑</span>
+          )}
           {comment.status === "pending" && <Badge>审核中，仅你可见</Badge>}
         </header>
-        {/* 渲染器（单独打包）加载完之前先显示原文；html 来自 renderCommentMarkdown，已按评论白名单清洗 */}
-        {render ? (
-          <div className={styles.body} dangerouslySetInnerHTML={{ __html: render(comment.bodyMd) }} />
+
+        {editing && me ? (
+          <CommentForm
+            me={me}
+            label="编辑评论"
+            submitLabel="保存"
+            initialBody={comment.bodyMd}
+            autoFocus
+            submit={(body) => commentsApi.edit(comment.id, body)}
+            onDone={onEditDone}
+            onCancel={onCancelEdit}
+          />
         ) : (
-          <div className={`${styles.body} ${styles.plain}`}>{comment.bodyMd}</div>
-        )}
-        {onReply && (
-          <Button variant="plain" className={styles.replyButton} onClick={onReply}>
-            回复
-          </Button>
+          <>
+            {/* 渲染器（单独打包）加载完之前先显示原文；html 来自 renderCommentMarkdown，已按评论白名单清洗 */}
+            {render ? (
+              <div className={styles.body} dangerouslySetInnerHTML={{ __html: render(comment.bodyMd) }} />
+            ) : (
+              <div className={`${styles.body} ${styles.plain}`}>{comment.bodyMd}</div>
+            )}
+            {(onReply || comment.mine) && (
+              <div className={styles.itemActions}>
+                {onReply && (
+                  <Button variant="plain" className={styles.itemButton} onClick={onReply}>
+                    回复
+                  </Button>
+                )}
+                {editable && (
+                  <Button variant="plain" className={styles.itemButton} onClick={onEdit}>
+                    编辑
+                  </Button>
+                )}
+                {comment.mine && (
+                  <Button variant="plain" className={styles.itemButton} onClick={onDelete}>
+                    删除
+                  </Button>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </article>
@@ -76,6 +127,10 @@ export function Comments({ slug }: { slug: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PublicComment | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>();
   const [reloadKey, setReloadKey] = useState(0);
 
   // 评论区进入视口（提前 600px）时才开始加载
@@ -135,6 +190,7 @@ export function Comments({ slug }: { slug: string }) {
     try {
       await commentsApi.logout();
       setReplyTarget(null);
+      setEditingId(null);
       reload();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "退出失败");
@@ -146,6 +202,46 @@ export function Comments({ slug }: { slug: string }) {
     setNotice(comment.status === "pending" ? "评论已提交，审核通过后所有人都能看到。" : null);
     reload();
   }
+
+  function edited() {
+    setEditingId(null);
+    setNotice("评论已修改。");
+    reload();
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete || deleting) return;
+    setDeleting(true);
+    setDeleteError(undefined);
+    try {
+      await commentsApi.remove(pendingDelete.id);
+      setPendingDelete(null);
+      setNotice("评论已删除。");
+      reload();
+    } catch (error) {
+      setDeleteError(error instanceof CommentApiError ? error.message : "删除失败，请稍后重试");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const itemProps = (comment: PublicComment, onReply: (() => void) | undefined) => ({
+    comment,
+    render,
+    me,
+    editing: editingId === comment.id,
+    onReply: canReply && comment.status === "approved" && !comment.deleted && editingId !== comment.id ? onReply : undefined,
+    onEdit: () => {
+      setReplyTarget(null);
+      setEditingId(comment.id);
+    },
+    onEditDone: edited,
+    onCancelEdit: () => setEditingId(null),
+    onDelete: () => {
+      setDeleteError(undefined);
+      setPendingDelete(comment);
+    },
+  });
 
   const count = data?.list.count ?? 0;
 
@@ -183,12 +279,13 @@ export function Comments({ slug }: { slug: string }) {
               <p className={styles.hint}>你已被禁止评论。</p>
             ) : (
               <CommentForm
-                slug={slug}
                 me={me}
-                onLogout={logout}
-                onSubmitted={submitted}
                 label="发表评论"
                 placeholder="写下你的想法…"
+                submitLabel="发表评论"
+                submit={(body) => commentsApi.post(slug, { body })}
+                onDone={submitted}
+                onLogout={logout}
               />
             )
           ) : (
@@ -207,26 +304,14 @@ export function Comments({ slug }: { slug: string }) {
               {data.list.threads.map((thread) => (
                 <li key={thread.id} className={styles.thread}>
                   <CommentItem
-                    comment={thread}
-                    render={render}
-                    onReply={
-                      canReply && thread.status === "approved"
-                        ? () => setReplyTarget({ threadId: thread.id, parentId: thread.id, login: thread.author.login })
-                        : undefined
-                    }
+                    {...itemProps(thread, () => setReplyTarget({ threadId: thread.id, parentId: thread.id, login: thread.author?.login ?? "" }))}
                   />
                   {(thread.replies.length > 0 || replyTarget?.threadId === thread.id) && (
                     <ol className={styles.replies}>
                       {thread.replies.map((reply) => (
                         <li key={reply.id}>
                           <CommentItem
-                            comment={reply}
-                            render={render}
-                            onReply={
-                              canReply && reply.status === "approved"
-                                ? () => setReplyTarget({ threadId: thread.id, parentId: reply.id, login: reply.author.login })
-                                : undefined
-                            }
+                            {...itemProps(reply, () => setReplyTarget({ threadId: thread.id, parentId: reply.id, login: reply.author?.login ?? "" }))}
                           />
                         </li>
                       ))}
@@ -234,14 +319,14 @@ export function Comments({ slug }: { slug: string }) {
                         <li>
                           <CommentForm
                             key={replyTarget.parentId}
-                            slug={slug}
                             me={me}
-                            parentId={replyTarget.parentId}
                             label={`回复 @${replyTarget.login}`}
                             placeholder={`回复 @${replyTarget.login}…`}
+                            submitLabel="回复"
                             autoFocus
+                            submit={(body) => commentsApi.post(slug, { body, parentId: replyTarget.parentId })}
+                            onDone={submitted}
                             onCancel={() => setReplyTarget(null)}
-                            onSubmitted={submitted}
                           />
                         </li>
                       )}
@@ -253,6 +338,19 @@ export function Comments({ slug }: { slug: string }) {
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="删除这条评论？"
+        confirmLabel="删除"
+        destructive
+        busy={deleting}
+        error={deleteError}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setPendingDelete(null)}
+      >
+        评论内容会被清除，无法恢复。
+      </ConfirmDialog>
     </section>
   );
 }

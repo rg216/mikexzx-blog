@@ -52,6 +52,22 @@ export function createCommentsApi(fetchImpl: typeof fetch = (...args) => fetch(.
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
       }),
+    edit: (id: number, body: string): Promise<PublicComment> =>
+      call(`/comments/${id}`, publicCommentSchema, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ body }),
+      }),
+    async remove(id: number): Promise<void> {
+      let res: Response;
+      try {
+        res = await fetchImpl(`/api/comments/${id}`, { method: "DELETE", credentials: "same-origin" });
+      } catch (error) {
+        throw new CommentApiError(0, "无法连接服务器，请检查网络后重试", { cause: error });
+      }
+      // 已经不存在了（比如在另一个标签页删过）：结果和成功一样
+      if (!res.ok && res.status !== 404) throw new CommentApiError(res.status, "删除失败，请稍后重试");
+    },
     async logout(): Promise<void> {
       const res = await fetchImpl("/api/auth/github/logout", { method: "POST", credentials: "same-origin" }).catch(() => null);
       if (!res?.ok) throw new CommentApiError(res?.status ?? 0, "退出失败，请稍后重试");

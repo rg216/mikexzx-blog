@@ -1,5 +1,14 @@
-import type { AdminComment, AdminCommenter, CommenterTrust, CommentList, CommentStatus, CommentThread, PublicComment } from "@blog/shared";
-import { and, asc, count, desc, eq, or, sql } from "drizzle-orm";
+import {
+  type AdminComment,
+  type AdminCommenter,
+  canEditComment,
+  type CommenterTrust,
+  type CommentList,
+  type CommentStatus,
+  type CommentThread,
+  type PublicComment,
+} from "@blog/shared";
+import { and, asc, count, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { GitHubUser } from "../auth/github.ts";
 import type { Commenter } from "../auth/commenter-sessions.ts";
@@ -24,6 +33,7 @@ function toAuthor(row: Pick<Commenter, "login" | "name" | "avatarUrl">) {
 /**
  * 文章的评论，组织成两层的楼。可见范围：已通过的，加上当前评论者自己待审核的（"审核中，仅你可见"）。
  * 顶层评论不可见（待审核 / 被拒绝）时，整楼都不显示——楼里的回复脱离了上下文。
+ * 作者删除的评论：回复直接不显示；顶层评论如果下面还有回复，留一个没有作者和内容的占位。
  */
 export async function listPostComments(db: Db, postId: number, viewerId: number | null): Promise<CommentList> {
   const rows = await db
@@ -34,8 +44,12 @@ export async function listPostComments(db: Db, postId: number, viewerId: number 
       body: comments.body,
       status: comments.status,
       createdAt: comments.createdAt,
+      editedAt: comments.editedAt,
+      deletedAt: comments.deletedAt,
+      commenterId: comments.commenterId,
       author: { login: commenters.login, name: commenters.name, avatarUrl: commenters.avatarUrl },
       parentLogin: parentAuthor.login,
+      parentDeletedAt: parent.deletedAt,
     })
     .from(comments)
     .innerJoin(commenters, eq(commenters.id, comments.commenterId))
@@ -54,13 +68,22 @@ export async function listPostComments(db: Db, postId: number, viewerId: number 
 
   const threads = new Map<number, CommentThread>();
   for (const row of rows) {
+    const deleted = row.deletedAt !== null;
+    // 删除了的回复不显示
+    if (deleted && row.rootId !== null) continue;
     const comment: PublicComment = {
       id: row.id,
-      author: row.author,
-      bodyMd: row.body,
+      author: deleted ? null : row.author,
+      bodyMd: deleted ? "" : row.body,
       createdAt: row.createdAt.toISOString(),
-      // 直接回复楼主不用标注；回复楼里的其他人才显示"回复 @谁"
-      replyTo: row.parentId !== null && row.parentId !== row.rootId && row.parentLogin ? { login: row.parentLogin } : null,
+      editedAt: deleted ? null : (row.editedAt?.toISOString() ?? null),
+      deleted,
+      mine: !deleted && viewerId !== null && row.commenterId === viewerId,
+      // 直接回复楼主不用标注；回复楼里的其他人才显示"回复 @谁"（对方已删除的不标）
+      replyTo:
+        row.parentId !== null && row.parentId !== row.rootId && row.parentLogin && row.parentDeletedAt === null
+          ? { login: row.parentLogin }
+          : null,
       status: row.status === "approved" ? "approved" : "pending",
     };
     if (row.rootId === null) threads.set(row.id, { ...comment, replies: [] });
@@ -68,9 +91,11 @@ export async function listPostComments(db: Db, postId: number, viewerId: number 
     else threads.get(row.rootId)?.replies.push(comment);
   }
 
-  const list = [...threads.values()];
+  // 已删除的楼主下面没有回复了，占位也不需要
+  const list = [...threads.values()].filter((thread) => !thread.deleted || thread.replies.length > 0);
   const visibleCount = list.reduce(
-    (sum, thread) => sum + (thread.status === "approved" ? 1 : 0) + thread.replies.filter((r) => r.status === "approved").length,
+    (sum, thread) =>
+      sum + (thread.status === "approved" && !thread.deleted ? 1 : 0) + thread.replies.filter((r) => r.status === "approved").length,
     0,
   );
   return { threads: list, count: visibleCount };
@@ -90,7 +115,7 @@ export async function createComment(
       .select({ id: comments.id, rootId: comments.rootId, login: commenters.login })
       .from(comments)
       .innerJoin(commenters, eq(commenters.id, comments.commenterId))
-      .where(and(eq(comments.id, parentId), eq(comments.postId, postId), eq(comments.status, "approved")));
+      .where(and(eq(comments.id, parentId), eq(comments.postId, postId), eq(comments.status, "approved"), isNull(comments.deletedAt)));
     if (!target) throw new HttpError(404, "not_found", "要回复的评论不存在");
     rootId = target.rootId ?? target.id;
     if (target.rootId !== null) replyTo = { login: target.login };
@@ -103,7 +128,76 @@ export async function createComment(
     .returning({ id: comments.id, createdAt: comments.createdAt });
   if (!row) throw new Error("insert returned no row");
 
-  return { id: row.id, author: toAuthor(commenter), bodyMd: body, createdAt: row.createdAt.toISOString(), replyTo, status };
+  return {
+    id: row.id,
+    author: toAuthor(commenter),
+    bodyMd: body,
+    createdAt: row.createdAt.toISOString(),
+    editedAt: null,
+    deleted: false,
+    mine: true,
+    replyTo,
+    status,
+  };
+}
+
+/** 作者自己的、还在显示（或待审核）的评论；别人的、已删除的、被拒绝的都当作不存在 */
+async function ownComment(db: Db, id: number, commenterId: number) {
+  const [row] = await db
+    .select()
+    .from(comments)
+    .where(
+      and(
+        eq(comments.id, id),
+        eq(comments.commenterId, commenterId),
+        isNull(comments.deletedAt),
+        or(eq(comments.status, "approved"), eq(comments.status, "pending")),
+      ),
+    );
+  if (!row) throw new HttpError(404, "not_found", "评论不存在");
+  return row;
+}
+
+/** 作者编辑自己的评论（规则见 canEditComment）。返回更新后的评论 */
+export async function editComment(db: Db, { id, commenter, body }: { id: number; commenter: Commenter; body: string }): Promise<PublicComment> {
+  const current = await ownComment(db, id, commenter.id);
+  if (!canEditComment(commenter.trust, current.status)) {
+    throw new HttpError(
+      403,
+      "forbidden",
+      commenter.trust === "blocked" ? "你已被禁止评论" : "评论通过审核后就不能再修改了，可以删除后重新发表",
+    );
+  }
+  const [row] = await db.update(comments).set({ body, editedAt: new Date() }).where(eq(comments.id, id)).returning();
+  if (!row) throw new HttpError(404, "not_found", "评论不存在");
+
+  const [target] = row.parentId
+    ? await db
+        .select({ login: commenters.login, rootId: comments.rootId, deletedAt: comments.deletedAt })
+        .from(comments)
+        .innerJoin(commenters, eq(commenters.id, comments.commenterId))
+        .where(eq(comments.id, row.parentId))
+    : [];
+  return {
+    id: row.id,
+    author: toAuthor(commenter),
+    bodyMd: row.body,
+    createdAt: row.createdAt.toISOString(),
+    editedAt: row.editedAt?.toISOString() ?? null,
+    deleted: false,
+    mine: true,
+    replyTo: target && target.rootId !== null && target.deletedAt === null ? { login: target.login } : null,
+    status: row.status === "approved" ? "approved" : "pending",
+  };
+}
+
+/**
+ * 作者删除自己的评论：清空正文、记下删除时间（而不是删掉这一行），楼里别人的回复不受影响。
+ * 被拉黑的人也可以删——撤回自己说过的话不需要权限。
+ */
+export async function deleteOwnComment(db: Db, { id, commenter }: { id: number; commenter: Commenter }): Promise<void> {
+  await ownComment(db, id, commenter.id);
+  await db.update(comments).set({ body: "", deletedAt: new Date() }).where(eq(comments.id, id));
 }
 
 /** 登录时同步 GitHub 资料（用户名、头像可能改过），返回最新的评论者记录 */
@@ -137,7 +231,7 @@ export async function listAdminComments(db: Db, status: CommentStatus): Promise<
       comment: comments,
       post: { slug: posts.slug, title: posts.title },
       author: commenters,
-      parent: { id: parent.id, body: parent.body },
+      parent: { id: parent.id, body: parent.body, deletedAt: parent.deletedAt },
       parentLogin: parentAuthor.login,
     })
     .from(comments)
@@ -145,7 +239,8 @@ export async function listAdminComments(db: Db, status: CommentStatus): Promise<
     .innerJoin(commenters, eq(commenters.id, comments.commenterId))
     .leftJoin(parent, eq(parent.id, comments.parentId))
     .leftJoin(parentAuthor, eq(parentAuthor.id, parent.commenterId))
-    .where(eq(comments.status, status))
+    // 作者已删除的不再需要审核，也不出现在列表里
+    .where(and(eq(comments.status, status), isNull(comments.deletedAt)))
     .orderBy(status === "pending" ? asc(comments.createdAt) : desc(comments.createdAt), desc(comments.id))
     .limit(ADMIN_LIST_LIMIT);
 
@@ -156,12 +251,18 @@ export async function listAdminComments(db: Db, status: CommentStatus): Promise<
     bodyMd: comment.body,
     status: comment.status,
     createdAt: comment.createdAt.toISOString(),
-    parent: p?.id && p.body !== null && parentLogin ? { id: p.id, login: parentLogin, excerpt: excerptOf(p.body) } : null,
+    parent:
+      p?.id && p.body !== null && parentLogin
+        ? { id: p.id, login: parentLogin, excerpt: p.deletedAt ? "（已被作者删除）" : excerptOf(p.body) }
+        : null,
   }));
 }
 
 export async function countPendingComments(db: Db): Promise<number> {
-  const [row] = await db.select({ n: count() }).from(comments).where(eq(comments.status, "pending"));
+  const [row] = await db
+    .select({ n: count() })
+    .from(comments)
+    .where(and(eq(comments.status, "pending"), isNull(comments.deletedAt)));
   return row?.n ?? 0;
 }
 

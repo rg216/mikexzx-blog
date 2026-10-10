@@ -210,9 +210,21 @@
   background: var(--color-secondary-background);
 }
 
-/* plain 按钮自带左右内边距，向左抵消，让"回复"和正文左边缘对齐 */
-.replyButton {
+/* 回复 / 编辑 / 删除。plain 按钮自带左右内边距，第一个向左抵消，让文字和正文左边缘对齐 */
+.itemActions {
+  display: flex;
+  flex-wrap: wrap;
   margin-left: calc(-1 * var(--space-1-5));
+}
+
+.itemButton {
   color: var(--color-secondary-label);
   font-size: var(--font-size-footnote);
+}
+
+.deleted {
+  align-self: center;
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+  font-style: italic;
 }

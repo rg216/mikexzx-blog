@@ -313,3 +313,125 @@ describe("moderation", () => {
     expect((await request("POST", "/admin/commenters", { body: { login: "bad name!" } })).status).toBe(400);
   });
 });
+
+describe("authors editing and deleting their own comments", () => {
+  const edit = (cookie: string | null, id: number, body: string) => request("PATCH", `/comments/${id}`, { ...as(cookie), body: { body } });
+  const remove = (cookie: string | null, id: number) => request("DELETE", `/comments/${id}`, as(cookie));
+
+  it("lets non-whitelisted authors edit only while the comment is still pending", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const b = await loginCommenter(bob);
+    const mine = await comment("a", b, "初稿");
+
+    const edited = await edit(b, mine.id, "改过的稿");
+    expect(edited.status).toBe(200);
+    expect(publicCommentSchema.parse(edited.body)).toMatchObject({ bodyMd: "改过的稿", status: "pending", mine: true });
+    expect(publicCommentSchema.parse(edited.body).editedAt).not.toBeNull();
+
+    await request("PATCH", `/admin/comments/${mine.id}`, { body: { status: "approved" } });
+    // 通过审核后再改成广告：拒绝
+    expect((await edit(b, mine.id, "买买买")).status).toBe(403);
+    expect((await list("a")).threads[0]?.bodyMd).toBe("改过的稿");
+  });
+
+  it("lets whitelisted authors edit at any time, and shows that it was edited", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const a = await loginCommenter(alice);
+    await trust("alice", "trusted");
+    const mine = await comment("a", a, "原文");
+    expect((await edit(a, mine.id, "修正错字")).status).toBe(200);
+    const [thread] = (await list("a")).threads;
+    expect(thread).toMatchObject({ bodyMd: "修正错字", status: "approved" });
+    expect(thread?.editedAt).not.toBeNull();
+  });
+
+  it("never lets anyone touch someone else's comment", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const a = await loginCommenter(alice);
+    const b = await loginCommenter(bob);
+    await trust("alice", "trusted");
+    const hers = await comment("a", a, "alice 的评论");
+    expect((await edit(b, hers.id, "篡改")).status).toBe(404);
+    expect((await remove(b, hers.id)).status).toBe(404);
+    expect((await edit(null, hers.id, "匿名")).status).toBe(401);
+    expect((await list("a")).threads[0]?.bodyMd).toBe("alice 的评论");
+  });
+
+  it("marks only the viewer's own comments as mine", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const a = await loginCommenter(alice);
+    const b = await loginCommenter(bob);
+    await trust("alice", "trusted");
+    await comment("a", a, "alice 的评论");
+    expect((await list("a", a)).threads[0]?.mine).toBe(true);
+    expect((await list("a", b)).threads[0]?.mine).toBe(false);
+    expect((await list("a")).threads[0]?.mine).toBe(false);
+  });
+
+  it("deletes a reply outright, clearing its content", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const a = await loginCommenter(alice);
+    const b = await loginCommenter(bob);
+    await trust("alice", "trusted");
+    await trust("bob", "trusted");
+    const root = await comment("a", a, "楼主");
+    const reply = await comment("a", b, "要删掉的回复", root.id);
+    await comment("a", a, "回复 bob", reply.id);
+
+    expect((await remove(b, reply.id)).status).toBe(204);
+    const { threads, count } = await list("a");
+    expect(count).toBe(2);
+    // 回复 bob 的那条还在，只是不再标注"回复 @bob"
+    expect(threads[0]?.replies.map((r) => [r.bodyMd, r.replyTo])).toEqual([["回复 bob", null]]);
+    expect((await remove(b, reply.id)).status).toBe(404);
+  });
+
+  it("keeps a placeholder for a deleted first comment that has replies, without author or content", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const a = await loginCommenter(alice);
+    const b = await loginCommenter(bob);
+    await trust("alice", "trusted");
+    await trust("bob", "trusted");
+    const root = await comment("a", a, "楼主说的话");
+    await comment("a", b, "bob 的回复", root.id);
+
+    await remove(a, root.id);
+    const { threads, count } = await list("a");
+    expect(count).toBe(1);
+    expect(threads[0]).toMatchObject({ deleted: true, author: null, bodyMd: "", mine: false });
+    expect(threads[0]?.replies.map((r) => r.bodyMd)).toEqual(["bob 的回复"]);
+    // 已删除的评论不能再被回复
+    expect((await request("POST", "/posts/a/comments", { ...as(b), body: { body: "x", parentId: root.id } })).status).toBe(404);
+  });
+
+  it("drops a deleted first comment entirely when nobody replied", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const a = await loginCommenter(alice);
+    await trust("alice", "trusted");
+    const root = await comment("a", a, "没人回复");
+    await remove(a, root.id);
+    expect(await list("a")).toEqual({ threads: [], count: 0 });
+  });
+
+  it("lets blocked users delete but not edit", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const b = await loginCommenter(bob);
+    const mine = await comment("a", b, "待审核");
+    await request("PATCH", `/admin/commenters/${await commenterId("bob")}`, { body: { trust: "default" } });
+    // 拉黑会拒绝待审核评论；这里先通过再拉黑，让评论保持可见
+    await request("PATCH", `/admin/comments/${mine.id}`, { body: { status: "approved" } });
+    await trust("bob", "blocked");
+    expect((await edit(b, mine.id, "改")).status).toBe(403);
+    expect((await remove(b, mine.id)).status).toBe(204);
+  });
+
+  it("removes pending comments deleted by their author from the review queue", async () => {
+    await createPost({ slug: "a", status: "published" });
+    const b = await loginCommenter(bob);
+    const mine = await comment("a", b, "算了不说了");
+    await remove(b, mine.id);
+    expect((await request("GET", "/admin/comments?status=pending")).body).toEqual([]);
+    expect((await request("GET", "/admin/comments/pending-count")).body).toEqual({ count: 0 });
+  });
+});
+
