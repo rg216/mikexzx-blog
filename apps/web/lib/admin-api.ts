@@ -1,9 +1,14 @@
 import {
+  type AdminImage,
+  adminImageSchema,
   type AdminPost,
   adminPostSchema,
   type ApiError,
   type ApiErrorCode,
   apiErrorSchema,
+  type ImageUpload,
+  type ImageUploadRequest,
+  imageUploadSchema,
   type PostCreateInput,
   type PostUpdateInput,
 } from "@blog/shared";
@@ -165,6 +170,16 @@ export function createAdminApi(options: JsonClientOptions = {}) {
 
     async deletePost(id: number): Promise<void> {
       await request("DELETE", `/posts/${id}`);
+    },
+
+    /** 申请上传一张图片：拿到预签名 URL（见 lib/image-upload.ts） */
+    async createImageUpload(input: ImageUploadRequest): Promise<ImageUpload> {
+      return parseJson(await request("POST", "/images", input), imageUploadSchema);
+    },
+
+    /** 文件传到存储之后，请 API 核对并确认 */
+    async confirmImage(id: number): Promise<AdminImage> {
+      return parseJson(await request("POST", `/images/${id}/confirm`), adminImageSchema);
     },
   };
 }

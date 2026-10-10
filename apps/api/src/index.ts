@@ -4,9 +4,10 @@ import { Hono } from "hono";
 import { createAuthConfig } from "./auth/config.ts";
 import { createApp } from "./create-app.ts";
 import { createDb } from "./db/client.ts";
-import { loadEnv } from "./env.ts";
+import { loadEnv, storageConfigFrom } from "./env.ts";
 import { createRevalidator } from "./lib/revalidate.ts";
 import { createRedisProvider } from "./redis.ts";
+import { createObjectStorage } from "./storage.ts";
 import type { AuthEnv } from "./middleware/auth.ts";
 
 /*
@@ -18,6 +19,8 @@ import type { AuthEnv } from "./middleware/auth.ts";
 const env = loadEnv();
 export const { db, pool } = createDb(env.DATABASE_URL);
 
+const storage = storageConfigFrom(env);
+
 const app = createApp({
   db,
   auth: createAuthConfig({ webOrigin: env.WEB_ORIGIN, setupToken: env.ADMIN_SETUP_TOKEN }),
@@ -25,6 +28,7 @@ const app = createApp({
     ? { revalidate: createRevalidator({ url: `${env.WEB_ORIGIN}/hooks/revalidate`, secret: env.REVALIDATE_SECRET }) }
     : {}),
   redis: env.REDIS_URL ? createRedisProvider(env.REDIS_URL) : null,
+  storage: storage ? createObjectStorage(storage) : null,
   ...(env.CRON_SECRET ? { cronSecret: env.CRON_SECRET } : {}),
   logRequests: true,
 }) satisfies Hono<AuthEnv>;

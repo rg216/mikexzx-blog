@@ -86,6 +86,27 @@ export const postViews = pgTable(
   (t) => [primaryKey({ columns: [t.postId, t.day] })],
 );
 
+/**
+ * 上传的图片（v2c）。文件在对象存储里，这里记录元数据。
+ * 签发上传 URL 时就插入一行（confirmed_at 为 NULL），浏览器上传完、API 核对过对象后才填 confirmed_at。
+ * 一直没确认的（上传失败、中途关掉页面）由每天的定时任务连同存储里的文件一起清理——
+ * 先记账再上传，存储里就不会出现"数据库不知道的孤儿文件"，清理时也不用遍历整个存储桶。
+ */
+export const images = pgTable(
+  "images",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    // 对象存储里的 key：images/2026/10/<随机串>.webp。随机串不可猜，也不会和已有文件重名
+    key: text().notNull().unique(),
+    contentType: text().notNull(),
+    // 申请上传时声明的字节数；确认时与存储里的实际大小比对
+    size: integer().notNull(),
+    createdAt: timestamptz().notNull().defaultNow(),
+    confirmedAt: timestamptz(),
+  },
+  (t) => [index("images_pending_idx").on(t.createdAt).where(sql`${t.confirmedAt} IS NULL`)],
+);
+
 // ---------- 鉴权（v2）：只用 Passkey，没有密码 ----------
 
 export const users = pgTable("users", {

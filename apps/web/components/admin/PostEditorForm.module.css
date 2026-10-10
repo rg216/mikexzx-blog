@@ -207,6 +207,31 @@
 }
 
 /* 和 TextField 的 label 同样式，两栏标题对齐 */
+/* 正文框下面的工具行：插入图片 + 上传状态（和 GitHub 编辑器底部的附件栏同一位置） */
+.contentTools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-1);
+  /* plain 按钮自带内边距，向左抵消，让图标和正文框左边缘对齐 */
+  margin-left: calc(-1 * var(--space-1-5));
+}
+
+.toolIcon {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.uploadStatus {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+}
+
+.uploadBanner {
+  margin-top: var(--space-1);
+}
+
 .paneTitle {
   margin-bottom: var(--space-1);
   color: var(--color-label);

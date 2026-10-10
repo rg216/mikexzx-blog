@@ -3,7 +3,9 @@ import { safeEqual } from "../auth/tokens.ts";
 import type { Db } from "../db/client.ts";
 import { errorBody } from "../lib/errors.ts";
 import type { RedisProvider } from "../redis.ts";
+import { cleanupPendingImages } from "../services/images.ts";
 import { flushDay, siteDay } from "../services/views.ts";
+import type { ObjectStorage } from "../storage.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -11,7 +13,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * 定时任务接口（Vercel Cron 每天调用，见 apps/api/vercel.json）。
  * Vercel Cron 发的是 GET 请求，并自动带上 Authorization: Bearer <CRON_SECRET>。
  */
-export function internalRoutes(db: Db, redis: RedisProvider | null, cronSecret: string | undefined) {
+export function internalRoutes(db: Db, redis: RedisProvider | null, storage: ObjectStorage | null, cronSecret: string | undefined) {
   return new Hono()
     .use(async (c, next) => {
       if (!cronSecret) return c.json(errorBody("internal_error", "未配置 CRON_SECRET"), 503);
@@ -28,5 +30,9 @@ export function internalRoutes(db: Db, redis: RedisProvider | null, cronSecret: 
       const flushed: Record<string, number> = {};
       for (const day of days) flushed[day] = await flushDay(client, db, day);
       return c.json({ flushed });
+    })
+    .get("/images/cleanup", async (c) => {
+      if (!storage) return c.json(errorBody("internal_error", "未配置图片存储"), 503);
+      return c.json({ deleted: await cleanupPendingImages(db, storage) });
     });
 }

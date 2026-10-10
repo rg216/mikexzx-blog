@@ -29,6 +29,13 @@
       "when": 1791609555145,
       "tag": "0003_search_vector",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791611003115,
+      "tag": "0004_images",
+      "breakpoints": true
     }
   ]
 }

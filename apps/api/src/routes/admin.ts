@@ -8,10 +8,12 @@ import { type Revalidator, tagsForChange } from "../lib/revalidate.ts";
 import { validate } from "../lib/validate.ts";
 import { type AuthEnv, requireSession, sessionOf } from "../middleware/auth.ts";
 import { createPost, deletePost, getPostById, listAllPosts, updatePost } from "../services/posts.ts";
+import type { ObjectStorage } from "../storage.ts";
+import { imageRoutes } from "./images.ts";
 
 const idParam = z.object({ id: z.coerce.number().int().positive().max(2_147_483_647) });
 
-export function adminRoutes(db: Db, revalidate: Revalidator, limiter: RateLimiter) {
+export function adminRoutes(db: Db, revalidate: Revalidator, limiter: RateLimiter, storage: ObjectStorage | null) {
   // 写操作按用户限流：正常编辑远远用不到，主要防脚本失控或 session 泄露后的批量破坏
   const limitWrites = rateLimit(limiter, rules.adminWrite, (c) => `user:${sessionOf(c).user.id}`);
 
@@ -47,5 +49,6 @@ export function adminRoutes(db: Db, revalidate: Revalidator, limiter: RateLimite
       if (!deleted) throw new HttpError(404, "not_found", "文章不存在");
       await notify(deleted, null);
       return c.body(null, 204);
-    });
+    })
+    .route("/images", imageRoutes(db, storage));
 }

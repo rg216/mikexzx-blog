@@ -16,6 +16,7 @@ import { internalRoutes } from "./routes/internal.ts";
 import { publicRoutes } from "./routes/public.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { viewRoutes } from "./routes/views.ts";
+import type { ObjectStorage } from "./storage.ts";
 
 type AppOptions = {
   db: Db;
@@ -26,6 +27,8 @@ type AppOptions = {
   revalidate?: Revalidator;
   /** 限流与阅读计数用；不传则不限流、不计数 */
   redis?: RedisProvider | null;
+  /** 图片上传用的对象存储；不传则上传接口返回 503 */
+  storage?: ObjectStorage | null;
   /** 定时任务接口的密钥；不传则定时任务接口返回 503 */
   cronSecret?: string;
   /** 测试里关掉，避免刷屏 */
@@ -39,6 +42,7 @@ export function createApp({
   webauthn = simpleWebAuthn,
   revalidate = noopRevalidator,
   redis = null,
+  storage = null,
   cronSecret,
   logRequests = false,
 }: AppOptions) {
@@ -56,8 +60,8 @@ export function createApp({
   app.route("/", viewRoutes(db, redis, limiter));
   app.route("/", searchRoutes(db, limiter));
   app.route("/auth", authRoutes(db, auth, webauthn, limiter));
-  app.route("/admin", adminRoutes(db, revalidate, limiter));
-  app.route("/internal", internalRoutes(db, redis, cronSecret));
+  app.route("/admin", adminRoutes(db, revalidate, limiter, storage));
+  app.route("/internal", internalRoutes(db, redis, storage, cronSecret));
 
   app.notFound((c) => c.json(errorBody("not_found", "接口不存在"), 404));
 

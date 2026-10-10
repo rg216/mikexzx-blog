@@ -6,6 +6,10 @@
     {
       "path": "/internal/views/flush",
       "schedule": "10 16 * * *"
+    },
+    {
+      "path": "/internal/images/cleanup",
+      "schedule": "20 16 * * *"
     }
   ]
 }

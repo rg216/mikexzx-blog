@@ -229,3 +229,10 @@ describe("revalidating the public site", () => {
     expect(revalidations).toEqual([]);
   });
 });
+
+describe("image uploads without storage", () => {
+  it("answers 503 instead of failing obscurely", async () => {
+    const res = await request("POST", "/admin/images", { body: { contentType: "image/png", size: 1 } });
+    expect(res.status).toBe(503);
+  });
+});

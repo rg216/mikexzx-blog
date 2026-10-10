@@ -32,11 +32,11 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 
 ## 常用命令（在仓库根目录执行）
 - 首次：`bun install`（isolated linker，见 `bunfig.toml`）；`cp apps/api/.env.example apps/api/.env`，填 `ADMIN_SETUP_TOKEN` 后打开 http://localhost:3000/admin/login 注册第一个 Passkey
-- `docker compose up -d`：本地 PostgreSQL 18（开发库 `blog`，测试库 `blog_test`）和 Redis 8.8（开发用 0 号库，测试用 15 号库）
+- `docker compose up -d`：本地 PostgreSQL 18（开发库 `blog`，测试库 `blog_test`）、Redis 8.8（开发用 0 号库，测试用 15 号库）、RustFS 对象存储（:9000，存储桶 `blog-images` / `blog-images-test`，由 `storage-init` 自动创建并开放匿名读）
 - `bun run db:migrate` / `db:seed`：迁移本地库 / 写入初始文章；改了 `schema.ts` 后 `bun run db:generate` 生成迁移
 - `bun run dev`：同时启动 API（:8787）和前端（:3000）
 - `bun run build`：构建前端（构建时会请求 API，需要 API 在运行）
-- `bun run test` / `lint` / `typecheck`：对所有 workspace 执行（API 测试连 `blog_test` 和 Redis 15 号库，需要 `docker compose up -d`）
+- `bun run test` / `lint` / `typecheck`：对所有 workspace 执行（API 测试连 `blog_test`、Redis 15 号库和 RustFS 测试桶，需要 `docker compose up -d`）
 - 前端目录：`app/(site)/` 前台（SiteShell：导航 + 页脚）；`app/admin/login` 登录页；`app/admin/(panel)/` 需登录的后台（AdminNav + SessionGate）
 
 ## API 约定
@@ -53,6 +53,18 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 客户端 IP 取 `X-Forwarded-For` 第一项：经前端 `/api` rewrite 转发时 API 看到的仍是访客真实 IP，客户端伪造该头无效（Vercel 边缘会覆写；2026-10 线上验证）。换成 VPS + Caddy 时要让 Caddy 覆写这个头
 - 阅读计数：访客 = SHA-256(每日随机盐 | IP | UA)，同一访客同一天同一篇只计一次，不用 cookie、不存 IP；爬虫不计数；数字由浏览器单独请求，不进 ISR 页面
 - 每天 00:10（北京时间）Vercel Cron 调 `GET /internal/views/flush`（Bearer `CRON_SECRET`），把前两天的计数幂等写入 `post_views`
+
+## 图片上传（v2c）
+- 浏览器直传对象存储，文件不经过 API（Vercel 函数请求体上限 4.5MB）：
+  1. 浏览器先缩放（长边 ≤ 2560）并重新编码 JPEG/PNG/WebP，去掉 EXIF（GPS 位置）；GIF、AVIF 原样上传
+  2. `POST /admin/images` {contentType, size}：API 记一笔待确认的图片，返回预签名 PUT URL（5 分钟），content-type、content-length、cache-control 都签进去，传别的类型或大小会被存储拒绝
+  3. 浏览器 PUT 到存储；`POST /admin/images/:id/confirm`：API 用 HEAD 核对大小和类型后才确认
+  4. 每天 00:20（北京时间）Cron 调 `GET /internal/images/cleanup`，删除超过一天没确认的图片（文件和记录）
+- 只收 JPEG / PNG / WebP / AVIF / GIF，≤ 10MB；不收 SVG（可内嵌脚本）。key 为 `images/YYYY/MM/<随机串>.<ext>`，内容不变，缓存一年
+- S3 协议客户端自己实现（`lib/sigv4.ts` 用 AWS 文档的测试向量验证，`storage.ts`），不用 AWS SDK；一律路径风格地址
+- 本地 RustFS（MinIO 社区版已停止维护、镜像下架）；线上 Cloudflare R2：region `auto`，存储桶需配置 CORS（允许前端源 PUT，AllowedHeaders 含 content-type、cache-control），公开访问用 r2.dev 地址（有速率限制，以后有自己的域名后改绑自定义域名）
+- 环境变量 `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL`，要么全设要么全不设
+- 编辑器：按钮、粘贴、拖放都能插入；上传期间插入占位符，完成后替换成 `![](url)`（单独成段，渲染为 figure）；有图片在上传时不允许保存
 
 ## 全文搜索（v4b）
 - Postgres tsvector，分词在应用里做（`apps/api/src/lib/search-text.ts`，索引和查询共用）：Neon 没有中文分词扩展，内置分词器又不切中文
@@ -92,6 +104,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - `tags` + `post_tags`
 - `comments`：post_id, user_id, parent_id（楼中楼）, body, status（审核）
 - `post_views`
+- `images`：key, content_type, size, confirmed_at（NULL 为待确认）
 
 ## 安全
 - 管理员登录：只用 Passkey（WebAuthn），没有密码；协议验证用 SimpleWebAuthn，其余自己实现
@@ -107,7 +120,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 ## 路线
 - [x] v0 前台：tokens、布局、首页列表、文章页，使用本地假数据；部署上线（Vercel，Root Directory `apps/web`，push 到 main 自动部署：https://mikexzx-blog.vercel.app）
 - [x] v1 API：Hono + Drizzle + Postgres，posts CRUD，zod 校验，Vitest（API 部署在 Vercel 第二个项目，Root Directory `apps/api`：https://mikexzx-blog-api.vercel.app；数据库 Neon us-east-1，迁移在本地用 `apps/api/.env.neon` 直连执行；前端项目设 `API_URL`）
-- [ ] v2 管理后台：登录、编辑器、草稿 / 发布、图片上传
+- [x] v2 管理后台：登录、编辑器、草稿 / 发布、图片上传（图片存 Cloudflare R2）
 - [x] v3 渲染与缓存：ISR；发布文章时由 API 通知前端 revalidate（两个 Vercel 项目共享 `REVALIDATE_SECRET`）
 - [ ] v4 评论（OAuth、楼中楼、审核）、阅读数（Redis）、全文搜索（Postgres tsvector）
   - [x] v4a 限流与阅读数（线上 Redis 用 Vercel Storage 里的 Upstash，API 项目设 `REDIS_URL`（rediss://）和 `CRON_SECRET`）

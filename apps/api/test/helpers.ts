@@ -9,6 +9,7 @@ import { createApp } from "../src/create-app.ts";
 import { createDb } from "../src/db/client.ts";
 import { users } from "../src/db/schema.ts";
 import { createRedisProvider, type RedisProvider } from "../src/redis.ts";
+import { createObjectStorage, type ObjectStorage } from "../src/storage.ts";
 
 export const WEB_ORIGIN = "https://blog.test";
 export const SETUP_TOKEN = "test-setup-token-0123456789abcdef0123456789";
@@ -144,12 +145,29 @@ type RequestOptions = {
   headers?: Record<string, string>;
 };
 
-/** 每个测试文件调用一次：建连接、组装 app、每个测试前清空数据。withRedis：连真实 Redis（限流、阅读计数）。 */
-export function setupTestApp({ withRedis = false }: { withRedis?: boolean } = {}) {
+/** 测试用的对象存储：docker compose 里的 RustFS（凭证与 compose 文件一致） */
+export function createTestStorage(): ObjectStorage {
+  const endpoint = process.env.TEST_S3_ENDPOINT ?? "";
+  const bucket = process.env.TEST_S3_BUCKET ?? "";
+  return createObjectStorage({
+    endpoint,
+    region: "us-east-1",
+    bucket,
+    credentials: { accessKeyId: "blog-dev-access-key", secretAccessKey: "blog-dev-secret-key" },
+    publicUrl: `${endpoint}/${bucket}`,
+  });
+}
+
+/**
+ * 每个测试文件调用一次：建连接、组装 app、每个测试前清空数据。
+ * withRedis：连真实 Redis（限流、阅读计数）；withStorage：连真实的对象存储（图片上传）。
+ */
+export function setupTestApp({ withRedis = false, withStorage = false }: { withRedis?: boolean; withStorage?: boolean } = {}) {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) throw new Error("TEST_DATABASE_URL 未设置");
   const { db, pool } = createDb(url);
   const redis: RedisProvider | null = withRedis ? createRedisProvider(process.env.TEST_REDIS_URL ?? "") : null;
+  const storage = withStorage ? createTestStorage() : null;
   const fake = createFakeWebAuthn();
   // 记录每次"通知前端失效缓存"的标签
   const revalidations: string[][] = [];
@@ -161,6 +179,7 @@ export function setupTestApp({ withRedis = false }: { withRedis?: boolean } = {}
       revalidations.push(tags);
     },
     redis,
+    storage,
     cronSecret: CRON_SECRET,
   });
 
@@ -171,7 +190,7 @@ export function setupTestApp({ withRedis = false }: { withRedis?: boolean } = {}
   beforeEach(async () => {
     // RESTART IDENTITY：自增 id 也从 1 开始，测试里的 id 可预测
     await db.execute(
-      sql`TRUNCATE posts, tags, post_tags, users, passkeys, sessions, auth_challenges RESTART IDENTITY CASCADE`,
+      sql`TRUNCATE posts, tags, post_tags, images, users, passkeys, sessions, auth_challenges RESTART IDENTITY CASCADE`,
     );
     jar.clear();
     adminCookie = null;
@@ -237,5 +256,5 @@ export function setupTestApp({ withRedis = false }: { withRedis?: boolean } = {}
     return res.body as { id: number; slug: string; publishedAt: string | null };
   }
 
-  return { db, app, redis, request, createPost, adminSessionCookie, jar, calls: fake.calls, revalidations };
+  return { db, app, redis, storage, request, createPost, adminSessionCookie, jar, calls: fake.calls, revalidations };
 }

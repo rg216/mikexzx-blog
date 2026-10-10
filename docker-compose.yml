@@ -1,4 +1,4 @@
-# 本地开发依赖（PostgreSQL、Redis）。启动：docker compose up -d
+# 本地开发依赖（PostgreSQL、Redis、S3 兼容对象存储）。启动：docker compose up -d
 name: mikexxz-blog
 
 services:
@@ -32,6 +32,48 @@ services:
       timeout: 3s
       retries: 15
 
+  # 图片存储：RustFS（S3 协议，线上对应 Cloudflare R2）。MinIO 社区版已停止维护、镜像已下架，所以不用它
+  storage:
+    image: rustfs/rustfs:1.0.1
+    command: /data
+    environment:
+      # 仅本地开发用的凭证，端口只绑定 127.0.0.1
+      RUSTFS_ACCESS_KEY: blog-dev-access-key
+      RUSTFS_SECRET_KEY: blog-dev-secret-key
+      RUSTFS_ADDRESS: ":9000"
+      # 浏览器直传（预签名 PUT）需要 CORS；RustFS 默认不发 CORS 头
+      RUSTFS_CORS_ALLOWED_ORIGINS: "http://localhost:3000"
+      RUSTFS_CONSOLE_ENABLE: "false"
+    ports:
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      # --noproxy：Docker 桌面端（OrbStack 等）可能把宿主机的代理变量传进容器，本机地址不能走代理
+      test: ["CMD", "curl", "-fsS", "--noproxy", "*", "http://localhost:9000/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # 一次性任务：建存储桶（开发 blog-images、测试 blog-images-test）并开放匿名读取，跑完即退出
+  storage-init:
+    image: amazon/aws-cli:2.37.8
+    depends_on:
+      storage:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: blog-dev-access-key
+      AWS_SECRET_ACCESS_KEY: blog-dev-secret-key
+      AWS_DEFAULT_REGION: us-east-1
+      # aws CLI v2 默认给请求加 CRC 校验和，非 AWS 的服务未必支持
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      NO_PROXY: storage
+      no_proxy: storage
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes:
+      - ./infra/storage/init.sh:/init.sh:ro
+
 volumes:
   postgres-data:
   redis-data:
+  storage-data:
