@@ -21,7 +21,9 @@ import { createSession, deleteExpiredSessions, revokeAllSessions, revokeSession 
 import { randomToken, safeEqual } from "../auth/tokens.ts";
 import type { WebAuthn } from "../auth/webauthn.ts";
 import type { Db } from "../db/client.ts";
+import { clientIp } from "../lib/client-ip.ts";
 import { HttpError } from "../lib/errors.ts";
+import { type RateLimiter, rateLimit, rules } from "../lib/rate-limit.ts";
 import { validate } from "../lib/validate.ts";
 import { type AuthEnv, requireSession, sessionOf } from "../middleware/auth.ts";
 import {
@@ -49,11 +51,15 @@ const toBase64url = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64ur
 const asRegistrationResponse = (value: unknown) => value as RegistrationResponseJSON;
 const asAuthenticationResponse = (value: unknown) => value as AuthenticationResponseJSON;
 
-export function authRoutes(db: Db, config: AuthConfig, webauthn: WebAuthn) {
+export function authRoutes(db: Db, config: AuthConfig, webauthn: WebAuthn, limiter: RateLimiter) {
   const { webOrigin, rpID, rpName } = config;
+  // 登录 / 注册相关的接口按 IP 限流（设置口令虽然猜不中，也不该允许无限次尝试）
+  const limitByIp = rateLimit(limiter, rules.auth, (c) => clientIp(c));
 
   return (
     new Hono<AuthEnv>()
+      .use("/registration/*", limitByIp)
+      .use("/authentication/*", limitByIp)
       /** 登录页用：还没有任何 Passkey 时显示"首次设置" */
       .get("/status", async (c) => c.json({ hasPasskeys: (await countPasskeys(db)) > 0 }))
 

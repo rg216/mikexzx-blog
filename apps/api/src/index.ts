@@ -6,6 +6,7 @@ import { createApp } from "./create-app.ts";
 import { createDb } from "./db/client.ts";
 import { loadEnv } from "./env.ts";
 import { createRevalidator } from "./lib/revalidate.ts";
+import { createRedisProvider } from "./redis.ts";
 import type { AuthEnv } from "./middleware/auth.ts";
 
 /*
@@ -23,6 +24,8 @@ const app = createApp({
   ...(env.REVALIDATE_SECRET
     ? { revalidate: createRevalidator({ url: `${env.WEB_ORIGIN}/hooks/revalidate`, secret: env.REVALIDATE_SECRET }) }
     : {}),
+  redis: env.REDIS_URL ? createRedisProvider(env.REDIS_URL) : null,
+  ...(env.CRON_SECRET ? { cronSecret: env.CRON_SECRET } : {}),
   logRequests: true,
 }) satisfies Hono<AuthEnv>;
 export default app;

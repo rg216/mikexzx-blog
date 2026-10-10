@@ -32,11 +32,11 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 
 ## 常用命令（在仓库根目录执行）
 - 首次：`bun install`（isolated linker，见 `bunfig.toml`）；`cp apps/api/.env.example apps/api/.env`，填 `ADMIN_SETUP_TOKEN` 后打开 http://localhost:3000/admin/login 注册第一个 Passkey
-- `docker compose up -d`：本地 PostgreSQL 18（开发库 `blog`，测试库 `blog_test`）
+- `docker compose up -d`：本地 PostgreSQL 18（开发库 `blog`，测试库 `blog_test`）和 Redis 8.8（开发用 0 号库，测试用 15 号库）
 - `bun run db:migrate` / `db:seed`：迁移本地库 / 写入初始文章；改了 `schema.ts` 后 `bun run db:generate` 生成迁移
 - `bun run dev`：同时启动 API（:8787）和前端（:3000）
 - `bun run build`：构建前端（构建时会请求 API，需要 API 在运行）
-- `bun run test` / `lint` / `typecheck`：对所有 workspace 执行（API 测试连 `blog_test`，需要 Postgres 在运行）
+- `bun run test` / `lint` / `typecheck`：对所有 workspace 执行（API 测试连 `blog_test` 和 Redis 15 号库，需要 `docker compose up -d`）
 - 前端目录：`app/(site)/` 前台（SiteShell：导航 + 页脚）；`app/admin/login` 登录页；`app/admin/(panel)/` 需登录的后台（AdminNav + SessionGate）
 
 ## API 约定
@@ -46,6 +46,12 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 错误统一为 `{ error: { code, message, issues? } }`（见 `apiErrorSchema`）；列表用游标分页（`{ items, nextCursor }`）
 - 业务不变量尽量同时落在数据库约束上（如"已发布必须有发布时间"的 CHECK）
 - 测试连真实 Postgres，不 mock 数据库
+
+## Redis：限流与阅读计数（v4a）
+- 客户端用官方 `redis`（node-redis），标准协议，本地 Docker / 线上 Upstash / 以后自建通用；关闭离线队列，断线时命令立即失败
+- 限流：固定窗口（MULTI 里 INCR + PEXPIRE NX），规则集中在 `lib/rate-limit.ts` 的 `rules`；Redis 不可用时放行（fail-open）；键只存哈希，不存原始 IP
+- 阅读计数：访客 = SHA-256(每日随机盐 | IP | UA)，同一访客同一天同一篇只计一次，不用 cookie、不存 IP；爬虫不计数；数字由浏览器单独请求，不进 ISR 页面
+- 每天 00:10（北京时间）Vercel Cron 调 `GET /internal/views/flush`（Bearer `CRON_SECRET`），把前两天的计数幂等写入 `post_views`
 
 ## 渲染与缓存（v3）
 - 前台页面是 ISR：构建时预生成，新 slug 首次访问时生成；数据请求带 `next: { revalidate: 3600, tags }`
@@ -92,6 +98,6 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - [x] v0 前台：tokens、布局、首页列表、文章页，使用本地假数据；部署上线（Vercel，Root Directory `apps/web`，push 到 main 自动部署：https://mikexzx-blog.vercel.app）
 - [x] v1 API：Hono + Drizzle + Postgres，posts CRUD，zod 校验，Vitest（API 部署在 Vercel 第二个项目，Root Directory `apps/api`：https://mikexzx-blog-api.vercel.app；数据库 Neon us-east-1，迁移在本地用 `apps/api/.env.neon` 直连执行；前端项目设 `API_URL`）
 - [ ] v2 管理后台：登录、编辑器、草稿 / 发布、图片上传
-- [ ] v3 渲染与缓存：ISR；发布文章时由 API 通知前端 revalidate
+- [x] v3 渲染与缓存：ISR；发布文章时由 API 通知前端 revalidate（两个 Vercel 项目共享 `REVALIDATE_SECRET`）
 - [ ] v4 评论（OAuth、楼中楼、审核）、阅读数（Redis）、全文搜索（Postgres tsvector）
 - [ ] v5 工程化：Docker 镜像、GitHub Actions、VPS + Caddy 部署、pino 日志、Sentry、Playwright

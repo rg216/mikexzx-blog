@@ -303,3 +303,12 @@ describe("managing passkeys", () => {
     expect((await request("DELETE", "/auth/passkeys/x", { auth: false })).status).toBe(401);
   });
 });
+
+describe("rate limiting", () => {
+  // 这个文件的 app 没有接 Redis（不限流）；限流行为在 views.test.ts 与 rate-limit.test.ts 里用真实 Redis 测试
+  it("does not rate-limit when Redis is not configured", async () => {
+    for (let i = 0; i < 25; i++) {
+      expect((await request("POST", "/auth/authentication/options", { auth: false })).status).toBe(200);
+    }
+  });
+});

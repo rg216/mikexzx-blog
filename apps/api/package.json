@@ -26,6 +26,7 @@
     "hono": "^4.13.13",
     "mdast-util-to-string": "^4.0.0",
     "pg": "^8.23.1",
+    "redis": "^6.3.0",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",

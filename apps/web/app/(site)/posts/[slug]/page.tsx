@@ -7,6 +7,7 @@ import { PageLayout } from "@/components/PageLayout";
 import { RecentPosts } from "@/components/RecentPosts";
 import { SidebarSection } from "@/components/SidebarSection";
 import { TagList } from "@/components/TagList";
+import { ViewCounter } from "@/components/ViewCounter";
 import { formatDate } from "@/lib/format";
 import { renderMarkdown } from "@/lib/markdown";
 import { getPublishedPost, listAllPublishedPosts, listPublishedPosts } from "@/lib/posts";
@@ -78,6 +79,7 @@ export default async function PostPage({ params }: Props) {
           <h1 className={styles.title}>{post.title}</h1>
           <div className={styles.meta}>
             <time dateTime={post.publishedAt}>{formatDate(post.publishedAt)}</time>
+            <ViewCounter slug={post.slug} />
             <TagList tags={post.tags} />
           </div>
         </header>

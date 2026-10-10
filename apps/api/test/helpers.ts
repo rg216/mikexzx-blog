@@ -8,9 +8,11 @@ import type { WebAuthn } from "../src/auth/webauthn.ts";
 import { createApp } from "../src/create-app.ts";
 import { createDb } from "../src/db/client.ts";
 import { users } from "../src/db/schema.ts";
+import { createRedisProvider, type RedisProvider } from "../src/redis.ts";
 
 export const WEB_ORIGIN = "https://blog.test";
 export const SETUP_TOKEN = "test-setup-token-0123456789abcdef0123456789";
+export const CRON_SECRET = "test-cron-secret-0123456789abcdef0123456789";
 
 // ---------- 假的 WebAuthn ----------
 /*
@@ -142,11 +144,12 @@ type RequestOptions = {
   headers?: Record<string, string>;
 };
 
-/** 每个测试文件调用一次：建连接、组装 app、每个测试前清空数据。 */
-export function setupTestApp() {
+/** 每个测试文件调用一次：建连接、组装 app、每个测试前清空数据。withRedis：连真实 Redis（限流、阅读计数）。 */
+export function setupTestApp({ withRedis = false }: { withRedis?: boolean } = {}) {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) throw new Error("TEST_DATABASE_URL 未设置");
   const { db, pool } = createDb(url);
+  const redis: RedisProvider | null = withRedis ? createRedisProvider(process.env.TEST_REDIS_URL ?? "") : null;
   const fake = createFakeWebAuthn();
   // 记录每次"通知前端失效缓存"的标签
   const revalidations: string[][] = [];
@@ -157,6 +160,8 @@ export function setupTestApp() {
     revalidate: async (tags) => {
       revalidations.push(tags);
     },
+    redis,
+    cronSecret: CRON_SECRET,
   });
 
   // 简易 cookie jar：像浏览器一样保存 Set-Cookie，并在后续请求里带上
@@ -172,8 +177,12 @@ export function setupTestApp() {
     adminCookie = null;
     fake.calls.length = 0;
     revalidations.length = 0;
+    if (redis) await (await redis()).flushDb();
   });
-  afterAll(() => pool.end());
+  afterAll(async () => {
+    await pool.end();
+    if (redis) (await redis()).destroy();
+  });
 
   /** 直接在库里建管理员和 session（管理接口的测试不必每次走 Passkey 流程） */
   async function adminSessionCookie(): Promise<string> {
@@ -228,5 +237,5 @@ export function setupTestApp() {
     return res.body as { id: number; slug: string; publishedAt: string | null };
   }
 
-  return { db, app, request, createPost, adminSessionCookie, jar, calls: fake.calls, revalidations };
+  return { db, app, redis, request, createPost, adminSessionCookie, jar, calls: fake.calls, revalidations };
 }

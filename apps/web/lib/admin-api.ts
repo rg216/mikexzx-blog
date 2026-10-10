@@ -53,6 +53,7 @@ function codeForStatus(status: number): AdminApiErrorCode {
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
   if (status === 409) return "conflict";
+  if (status === 429) return "rate_limited";
   return "internal_error";
 }
 
@@ -62,6 +63,7 @@ const fallbackMessages: Record<AdminApiErrorCode, string> = {
   forbidden: "请求被拒绝，请刷新页面后重试",
   not_found: "文章不存在",
   conflict: "与已有数据冲突",
+  rate_limited: "操作太频繁，请稍后再试",
   internal_error: "服务器出错了，请稍后重试",
   network_error: "无法连接服务器，请检查网络后重试",
   bad_response: "服务器返回的数据格式不正确",

@@ -3,14 +3,18 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { HttpError } from "../lib/errors.ts";
+import { type RateLimiter, rateLimit, rules } from "../lib/rate-limit.ts";
 import { type Revalidator, tagsForChange } from "../lib/revalidate.ts";
 import { validate } from "../lib/validate.ts";
-import { type AuthEnv, requireSession } from "../middleware/auth.ts";
+import { type AuthEnv, requireSession, sessionOf } from "../middleware/auth.ts";
 import { createPost, deletePost, getPostById, listAllPosts, updatePost } from "../services/posts.ts";
 
 const idParam = z.object({ id: z.coerce.number().int().positive().max(2_147_483_647) });
 
-export function adminRoutes(db: Db, revalidate: Revalidator) {
+export function adminRoutes(db: Db, revalidate: Revalidator, limiter: RateLimiter) {
+  // 写操作按用户限流：正常编辑远远用不到，主要防脚本失控或 session 泄露后的批量破坏
+  const limitWrites = rateLimit(limiter, rules.adminWrite, (c) => `user:${sessionOf(c).user.id}`);
+
   /** 写入成功后，如果前台可见内容变了，通知前端让对应页面失效 */
   async function notify(before: Parameters<typeof tagsForChange>[0], after: Parameters<typeof tagsForChange>[1]) {
     const tags = tagsForChange(before, after);
@@ -19,6 +23,7 @@ export function adminRoutes(db: Db, revalidate: Revalidator) {
 
   return new Hono<AuthEnv>()
     .use(requireSession)
+    .use(async (c, next) => (c.req.method === "GET" ? next() : limitWrites(c, next)))
     .get("/posts", async (c) => c.json(await listAllPosts(db)))
     .get("/posts/:id", validate("param", idParam), async (c) => {
       const post = await getPostById(db, c.req.valid("param").id);

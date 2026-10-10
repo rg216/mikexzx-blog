@@ -6,11 +6,15 @@ import type { AuthConfig } from "./auth/config.ts";
 import { simpleWebAuthn, type WebAuthn } from "./auth/webauthn.ts";
 import type { Db } from "./db/client.ts";
 import { errorBody, HttpError, pgErrorCode } from "./lib/errors.ts";
+import { createRateLimiter, unlimited } from "./lib/rate-limit.ts";
 import { noopRevalidator, type Revalidator } from "./lib/revalidate.ts";
 import { type AuthEnv, loadSession, requireSameOrigin } from "./middleware/auth.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import type { RedisProvider } from "./redis.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { internalRoutes } from "./routes/internal.ts";
 import { publicRoutes } from "./routes/public.ts";
+import { viewRoutes } from "./routes/views.ts";
 
 type AppOptions = {
   db: Db;
@@ -19,13 +23,26 @@ type AppOptions = {
   webauthn?: WebAuthn;
   /** 写入文章后通知前端失效缓存；默认不通知 */
   revalidate?: Revalidator;
+  /** 限流与阅读计数用；不传则不限流、不计数 */
+  redis?: RedisProvider | null;
+  /** 定时任务接口的密钥；不传则定时任务接口返回 503 */
+  cronSecret?: string;
   /** 测试里关掉，避免刷屏 */
   logRequests?: boolean;
 };
 
 /** 组装应用。依赖从外面传入（而不是在模块里直接连库），测试时可以换成测试库。 */
-export function createApp({ db, auth, webauthn = simpleWebAuthn, revalidate = noopRevalidator, logRequests = false }: AppOptions) {
+export function createApp({
+  db,
+  auth,
+  webauthn = simpleWebAuthn,
+  revalidate = noopRevalidator,
+  redis = null,
+  cronSecret,
+  logRequests = false,
+}: AppOptions) {
   const app = new Hono<AuthEnv>();
+  const limiter = redis ? createRateLimiter(redis) : unlimited;
 
   if (logRequests) app.use(logger());
   app.use(secureHeaders());
@@ -35,8 +52,10 @@ export function createApp({ db, auth, webauthn = simpleWebAuthn, revalidate = no
 
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/", publicRoutes(db));
-  app.route("/auth", authRoutes(db, auth, webauthn));
-  app.route("/admin", adminRoutes(db, revalidate));
+  app.route("/", viewRoutes(db, redis, limiter));
+  app.route("/auth", authRoutes(db, auth, webauthn, limiter));
+  app.route("/admin", adminRoutes(db, revalidate, limiter));
+  app.route("/internal", internalRoutes(db, redis, cronSecret));
 
   app.notFound((c) => c.json(errorBody("not_found", "接口不存在"), 404));
 

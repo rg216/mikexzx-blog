@@ -123,6 +123,15 @@ export async function getPublishedPost(db: Db, slug: string): Promise<Post | nul
   return toPost(row, tagMap.get(row.id) ?? []);
 }
 
+/** 已发布文章的 id（阅读计数用）；不存在或是草稿返回 null。 */
+export async function getPublishedPostId(db: Db, slug: string): Promise<number | null> {
+  const [row] = await db
+    .select({ id: posts.id })
+    .from(posts)
+    .where(and(eq(posts.slug, slug), eq(posts.status, "published")));
+  return row?.id ?? null;
+}
+
 /** 已发布文章用到的标签及篇数；只被草稿用到的标签不出现。 */
 export async function listTags(db: Db): Promise<TagWithCount[]> {
   const postCount = count(posts.id);

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, index, integer, pgEnum, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 // 列名由 casing: "snake_case" 自动转换：contentMd → content_md。
 
@@ -57,6 +57,23 @@ export const postTags = pgTable(
   },
   // 复合主键同时防止重复关联；(post_id, tag_id) 的顺序也服务于"按文章查标签"
   (t) => [primaryKey({ columns: [t.postId, t.tagId] }), index("post_tags_tag_id_idx").on(t.tagId)],
+);
+
+/**
+ * 每篇文章每天的阅读数（v4）。实时计数在 Redis 里，每天由定时任务把前一天的数字写到这里：
+ * 一是保留历史（以后可以画趋势），二是 Redis 数据丢了也能从这里重算总数。
+ */
+export const postViews = pgTable(
+  "post_views",
+  {
+    postId: integer()
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    // 按站点时区（Asia/Shanghai）划分的日期
+    day: date({ mode: "string" }).notNull(),
+    views: integer().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.postId, t.day] })],
 );
 
 // ---------- 鉴权（v2）：只用 Passkey，没有密码 ----------

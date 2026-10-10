@@ -98,7 +98,7 @@ export type PostUpdateInput = z.input<typeof postUpdateInputSchema>;
 
 export const apiErrorSchema = z.object({
   error: z.object({
-    code: z.enum(["validation_error", "unauthorized", "forbidden", "not_found", "conflict", "internal_error"]),
+    code: z.enum(["validation_error", "unauthorized", "forbidden", "not_found", "conflict", "rate_limited", "internal_error"]),
     message: z.string(),
     /** 校验错误的明细，字段路径 + 原因 */
     issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
@@ -106,3 +106,7 @@ export const apiErrorSchema = z.object({
 });
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export type ApiErrorCode = ApiError["error"]["code"];
+
+/** 阅读数；服务端没有配置 Redis 时为 null（前端不显示） */
+export const viewCountSchema = z.object({ views: z.int().nonnegative().nullable() });
+export type ViewCount = z.infer<typeof viewCountSchema>;
