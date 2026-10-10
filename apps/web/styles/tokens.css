@@ -111,6 +111,8 @@
   --color-grouped-background: #f2f2f7;
   --color-secondary-grouped-background: #ffffff;
   --color-fill: rgb(120 120 128 / 0.12);
+  /* 搜索结果的高亮底色：systemYellow 半透明，文字仍是 label 色（黑字叠在淡黄上对比度 > 15:1） */
+  --color-highlight-fill: rgb(255 204 0 / 0.35);
   --color-separator: rgb(60 60 67 / 0.29);
 
   /*
@@ -193,6 +195,7 @@
     --color-grouped-background: #000000;
     --color-secondary-grouped-background: #1c1c1e;
     --color-fill: rgb(120 120 128 / 0.24);
+    --color-highlight-fill: rgb(255 214 10 / 0.3); /* 白字叠在黑底上的暗黄 > 9:1 */
     --color-separator: rgb(84 84 88 / 0.65);
     --color-accent: #0a84ff;
     --color-accent-text: #0a84ff;

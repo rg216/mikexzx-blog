@@ -45,3 +45,8 @@
   padding: 0;
   list-style: none;
 }
+
+.icon {
+  width: 1.25em;
+  height: 1.25em;
+}

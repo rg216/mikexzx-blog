@@ -50,8 +50,18 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 ## Redis：限流与阅读计数（v4a）
 - 客户端用官方 `redis`（node-redis），标准协议，本地 Docker / 线上 Upstash / 以后自建通用；关闭离线队列，断线时命令立即失败
 - 限流：固定窗口（MULTI 里 INCR + PEXPIRE NX），规则集中在 `lib/rate-limit.ts` 的 `rules`；Redis 不可用时放行（fail-open）；键只存哈希，不存原始 IP
+- 客户端 IP 取 `X-Forwarded-For` 第一项：经前端 `/api` rewrite 转发时 API 看到的仍是访客真实 IP，客户端伪造该头无效（Vercel 边缘会覆写；2026-10 线上验证）。换成 VPS + Caddy 时要让 Caddy 覆写这个头
 - 阅读计数：访客 = SHA-256(每日随机盐 | IP | UA)，同一访客同一天同一篇只计一次，不用 cookie、不存 IP；爬虫不计数；数字由浏览器单独请求，不进 ISR 页面
 - 每天 00:10（北京时间）Vercel Cron 调 `GET /internal/views/flush`（Bearer `CRON_SECRET`），把前两天的计数幂等写入 `post_views`
+
+## 全文搜索（v4b）
+- Postgres tsvector，分词在应用里做（`apps/api/src/lib/search-text.ts`，索引和查询共用）：Neon 没有中文分词扩展，内置分词器又不切中文
+  - 中日韩文字切成单字 + 二元组，查询时二元组之间 AND（不用短语查询 `<->`：位置上限 16383，长文后半部分会悄悄搜不到）；其他文字按词切、前缀匹配；先 NFKC + 小写
+  - 直接生成 tsvector / tsquery 字面量再 `::tsvector`，不用 `to_tsvector()`（避免本地和 Neon 的 locale 不同导致切词不一致）；用户输入只能变成带引号的词条，改变不了查询结构
+- `posts.search_vector` 写入文章时生成（标题 A、标签 B、正文 D；正文只索引前 3 万字，防止超过 tsvector 的 1MB 上限），GIN 部分索引；标签改名时一并重建用到它的其他文章（不改它们的 `updated_at`）
+- `search_vector` 为 NULL 表示待生成：`db:migrate` 跑完迁移后自动补齐。改了分词规则就用 `drizzle-kit generate --custom` 写一个 `UPDATE posts SET search_vector = NULL` 的迁移
+- `GET /search?q=`：按 `ts_rank` 排序，最多 20 条，不分页；返回高亮区间（UTF-16 下标），不返回 HTML；按 IP 限流
+- 前端 `/search` 是静态页，浏览器经 `/api/search` 请求（服务端渲染的话 API 看到的是 Vercel 函数的 IP，所有读者共用限流额度）；输入防抖 250ms，查询词同步到 `?q=`
 
 ## 渲染与缓存（v3）
 - 前台页面是 ISR：构建时预生成，新 slug 首次访问时生成；数据请求带 `next: { revalidate: 3600, tags }`
@@ -78,7 +88,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 
 ## 数据模型（初稿）
 - `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`
-- `posts`：slug, title, content_md, status (draft | published), published_at
+- `posts`：slug, title, content_md, excerpt, status (draft | published), published_at, search_vector
 - `tags` + `post_tags`
 - `comments`：post_id, user_id, parent_id（楼中楼）, body, status（审核）
 - `post_views`
@@ -100,4 +110,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - [ ] v2 管理后台：登录、编辑器、草稿 / 发布、图片上传
 - [x] v3 渲染与缓存：ISR；发布文章时由 API 通知前端 revalidate（两个 Vercel 项目共享 `REVALIDATE_SECRET`）
 - [ ] v4 评论（OAuth、楼中楼、审核）、阅读数（Redis）、全文搜索（Postgres tsvector）
+  - [x] v4a 限流与阅读数（线上 Redis 用 Vercel Storage 里的 Upstash，API 项目设 `REDIS_URL`（rediss://）和 `CRON_SECRET`）
+  - [x] v4b 全文搜索
+  - [ ] v4c 评论
 - [ ] v5 工程化：Docker 镜像、GitHub Actions、VPS + Caddy 部署、pino 日志、Sentry、Playwright

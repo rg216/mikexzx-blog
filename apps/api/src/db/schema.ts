@@ -1,11 +1,14 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, customType, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 // 列名由 casing: "snake_case" 自动转换：contentMd → content_md。
 
 // 时间戳统一精确到毫秒：PostgreSQL 默认是微秒，而 JS 的 Date 只有毫秒。
 // 游标分页要拿 JS 里的时间和库里的比较，精度不一致会导致漏掉或重复文章。
 const timestamptz = () => timestamp({ withTimezone: true, precision: 3 });
+
+// Drizzle 没有内置 tsvector 类型。读写都用文本形式（'lexeme':1A …），由 lib/search-text.ts 生成
+const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
 
 export const postStatus = pgEnum("post_status", ["draft", "published"]);
 
@@ -20,6 +23,9 @@ export const posts = pgTable(
     // 写入时生成并存储，列表查询不用再解析 Markdown
     excerpt: text().notNull(),
     status: postStatus().notNull().default("draft"),
+    // 全文搜索索引（v4b），写入时由 API 生成。NULL 表示待生成：迁移脚本跑完迁移后会补齐，
+    // 所以改了分词规则时，写一个 "UPDATE posts SET search_vector = NULL" 的迁移即可全部重建
+    searchVector: tsvector(),
     publishedAt: timestamptz(),
     createdAt: timestamptz().notNull().defaultNow(),
     updatedAt: timestamptz()
@@ -33,6 +39,10 @@ export const posts = pgTable(
     // 公开列表的查询条件 + 排序 + 游标，正好对应这个部分索引
     index("posts_published_feed_idx")
       .on(t.publishedAt.desc(), t.id.desc())
+      .where(sql`${t.status} = 'published'`),
+    // GIN 倒排索引：按词条找文章。只有已发布文章会被搜索，所以也做成部分索引
+    index("posts_search_idx")
+      .using("gin", t.searchVector)
       .where(sql`${t.status} = 'published'`),
   ],
 );

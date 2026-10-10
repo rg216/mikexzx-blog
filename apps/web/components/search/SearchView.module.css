@@ -1,0 +1,40 @@
+.form {
+  margin-bottom: var(--space-1);
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--hit-target);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  /* 小号灰字用半粗补偿 */
+  font-weight: var(--font-weight-semibold);
+}
+
+.spinner {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.list {
+  padding: 0;
+  list-style: none;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+/* 新结果还没回来时，旧结果变淡，表示"这不是你刚输入的内容的结果" */
+.list[data-stale] {
+  opacity: 0.5;
+}
+
+.item + .item {
+  border-top: 0.5px solid var(--color-separator);
+}
+
+.mark {
+  border-radius: 0.125em;
+  background: var(--color-highlight-fill);
+  color: inherit;
+}

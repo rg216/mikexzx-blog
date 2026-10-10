@@ -79,4 +79,6 @@ export const rules = {
   adminWrite: { name: "admin-write", limit: 120, windowSeconds: 60 },
   /** 阅读计数：按 IP */
   views: { name: "views", limit: 60, windowSeconds: 60 },
+  /** 搜索：按 IP（前端边输入边搜，已做防抖） */
+  search: { name: "search", limit: 60, windowSeconds: 60 },
 } satisfies Record<string, RateRule>;

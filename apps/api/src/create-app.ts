@@ -14,6 +14,7 @@ import type { RedisProvider } from "./redis.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { internalRoutes } from "./routes/internal.ts";
 import { publicRoutes } from "./routes/public.ts";
+import { searchRoutes } from "./routes/search.ts";
 import { viewRoutes } from "./routes/views.ts";
 
 type AppOptions = {
@@ -53,6 +54,7 @@ export function createApp({
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/", publicRoutes(db));
   app.route("/", viewRoutes(db, redis, limiter));
+  app.route("/", searchRoutes(db, limiter));
   app.route("/auth", authRoutes(db, auth, webauthn, limiter));
   app.route("/admin", adminRoutes(db, revalidate, limiter));
   app.route("/internal", internalRoutes(db, redis, cronSecret));
