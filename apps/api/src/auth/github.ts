@@ -74,6 +74,9 @@ export function createGitHub(config: GitHubConfig, fetchImpl: typeof fetch = fet
         code_challenge: codeChallengeFor(codeVerifier),
         code_challenge_method: "S256",
         allow_signup: "false",
+        // 总是先显示 GitHub 的账号选择页：否则用户在 GitHub 上已登录且授权过时会被静默登录回同一个账号，
+        // 在本站"退出"后再点登录就换不了账号
+        prompt: "select_account",
       }).toString();
       return url.toString();
     },

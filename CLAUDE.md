@@ -70,6 +70,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 评论者用 GitHub 登录（GitHub App，不申请任何权限，只读公开资料；一个 App 配本地和线上两个回调地址），与管理员的 Passkey 体系完全分开：
   - 独立的表（`commenters`、`commenter_sessions`）和 cookie（`__Host-commenter`）；评论者 session 访问不了 `/admin/*`
   - OAuth 授权码 + PKCE（S256）；state 存在 `oauth_states`（一次性、10 分钟）并同时放进 `__Host-oauth` cookie（SameSite=Lax，从 GitHub 跳回是跨站导航），回调时两者必须一致，防登录 CSRF
+  - 授权页总带 `prompt=select_account`：否则 GitHub 已登录且授权过时会静默登录回同一个账号，本站退出后换不了账号
   - access token 用完即弃；登录后跳回的地址只接受本站路径（`lib/safe-path.ts`），失败时带 `?login=cancelled|failed` 回原页面
 - 审核规则是白名单制：`trust` 为 trusted 的直接显示，default 的每条都待审核，blocked 的不能评论。加入白名单会通过其所有待审核评论，拉黑会拒绝它们；可以按 GitHub 用户名预先加入（API 查 GitHub 公开资料）
 - 楼中楼两层：`root_id` 指向顶层评论，`parent_id` 指向直接回复的那条（"回复 @谁"）；只能回复同一篇文章里已显示的评论；顶层评论不可见时整楼不显示，删除顶层评论连同整楼删除
