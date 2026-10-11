@@ -1,0 +1,90 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* 和 TextField 的 label 同样式：在元信息区里看起来是同一组表单项 */
+.title {
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: normal;
+}
+
+.note {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+.list {
+  padding: 0;
+  border-top: 0.5px solid var(--color-separator);
+  list-style: none;
+}
+
+/* 每种语言一行：语言名 + 状态 + 来源和时间，右侧是编辑链接；窄屏来源和时间换到第二行 */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "head action"
+    "detail action";
+  align-items: center;
+  column-gap: var(--space-1);
+  padding-block: var(--space-1);
+  border-bottom: 0.5px solid var(--color-separator);
+}
+
+.head {
+  grid-area: head;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+}
+
+.detail {
+  grid-area: detail;
+  min-width: 0;
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail:empty {
+  display: none;
+}
+
+.action {
+  grid-area: action;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-target);
+  padding-inline: var(--space-1);
+  color: var(--color-accent-text);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.action:hover {
+  text-decoration: underline;
+}
+
+@media (min-width: 46rem) {
+  .row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "head detail action";
+    column-gap: var(--space-2);
+  }
+}

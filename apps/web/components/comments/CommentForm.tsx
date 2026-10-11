@@ -6,7 +6,9 @@ import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { TextArea } from "@/components/ui/TextField";
 import { CommentApiError } from "@/lib/comments-api";
+import { useDictionary } from "@/lib/i18n/client";
 import styles from "./Comments.module.css";
+import { commentErrorText } from "./comment-errors";
 
 type Props = {
   me: NonNullable<CommenterMe["commenter"]>;
@@ -28,6 +30,8 @@ export function CommentForm({ me, label, placeholder, submitLabel, submit, onDon
   const [body, setBody] = useState(initialBody);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dict = useDictionary().comments;
+  const t = dict.form;
   const unchanged = body.trim() === "" || body === initialBody;
 
   async function send(event?: FormEvent) {
@@ -40,7 +44,7 @@ export function CommentForm({ me, label, placeholder, submitLabel, submit, onDon
       setBody("");
       onDone(comment);
     } catch (err) {
-      setError(err instanceof CommentApiError ? err.message : "发送失败，请稍后重试");
+      setError(commentErrorText(dict.errors, err instanceof CommentApiError ? err.reason : "unavailable"));
     } finally {
       setSending(false);
     }
@@ -61,22 +65,24 @@ export function CommentForm({ me, label, placeholder, submitLabel, submit, onDon
         maxLength={COMMENT_MAX_LENGTH}
         // 回复、编辑框是用户点了按钮之后才出现的，聚焦它是预期之内的行为
         autoFocus={autoFocus}
-        hint={me.trust === "trusted" ? "支持 Markdown。评论会直接显示。" : "支持 Markdown。审核通过后显示，通过前可以修改。"}
+        hint={me.trust === "trusted" ? t.hintTrusted : t.hintModerated}
       />
-      {error && <Banner title="发送失败">{error}</Banner>}
+      {error && <Banner title={t.sendErrorTitle}>{error}</Banner>}
       <div className={styles.formBar}>
         {onLogout && (
           <span className={styles.identity}>
-            以 <strong>@{me.login}</strong> 的身份
+            {t.identityBefore}
+            <strong>@{me.login}</strong>
+            {t.identityAfter}
             <Button variant="plain" className={styles.inlineButton} onClick={onLogout}>
-              退出
+              {t.signOut}
             </Button>
           </span>
         )}
         <span className={styles.formActions}>
           {onCancel && (
             <Button variant="plain" onClick={onCancel}>
-              取消
+              {t.cancel}
             </Button>
           )}
           <Button type="submit" variant="primary" busy={sending} disabled={unchanged}>

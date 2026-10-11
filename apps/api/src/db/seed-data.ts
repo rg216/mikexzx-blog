@@ -1,4 +1,4 @@
-import type { PostCreateInput } from "@blog/shared";
+import type { Locale, PostCreateInput } from "@blog/shared";
 
 /*
  * 开发环境的初始数据（原 v0 前端的假数据）：bun run db:seed 写入本地数据库。
@@ -200,5 +200,72 @@ linker = "isolated"
     publishedAt: null,
     tags: [{ slug: "fullstack", name: "全栈" }],
     contentMd: "草稿：这篇不应该出现在任何公开页面上。",
+  },
+];
+
+/**
+ * 开发环境的示例译文（v4.5）：让本地的 /en、/ja 有内容可看。作为人工译文写入，依据的是上面的原文。
+ * 只翻译第一篇：其他文章在英文、日文列表里不出现，直接访问时显示原文 + 提示——两种情况本地都能看到。
+ */
+export const seedTranslations: { slug: string; locale: Locale; title: string; contentMd: string }[] = [
+  {
+    slug: "why-build-a-blog-from-scratch",
+    locale: "en",
+    title: "Why build a blog from scratch",
+    contentMd: `There are plenty of ready-made blog systems: with Hugo, Astro or a Notion page you can be online in ten minutes. But the point of this blog isn't "having a blog" — it's **walking through the whole web stack, end to end**.
+
+## Just one rule
+
+Anything that could be outsourced is deliberately built by hand:
+
+- Comments: stored and moderated here, commenters sign in with GitHub OAuth
+- Auth: the admin signs in with a home-made session instead of a third-party service
+- Search: full-text search with Postgres \`tsvector\`
+- Counting: view counts live in Redis
+
+## Roadmap
+
+The project is split into six stages, and every stage must end in something deployable:
+
+1. Front end: design tokens, layout, home page list, post page
+2. API: Hono + Drizzle + PostgreSQL
+3. Admin: sign-in, editor, drafts and publishing
+4. Rendering and caching: ISR, revalidating the front end on publish
+5. Comments, view counts, full-text search
+6. Engineering: Docker, CI, VPS deployment, logging and monitoring
+
+> The blog is the vehicle; learning is the goal.
+
+What you're looking at is the output of the first stage: every post is still local mock data.`,
+  },
+  {
+    slug: "why-build-a-blog-from-scratch",
+    locale: "ja",
+    title: "なぜブログをゼロから作るのか",
+    contentMd: `既製のブログシステムはたくさんあります。Hugo や Astro、あるいは Notion のページを使えば、十分で公開できます。しかしこのブログの目的は「ブログを持つこと」ではなく、**Web のフルスタックを一通り経験すること**です。
+
+## ルールはひとつだけ
+
+外部サービスに任せられる機能は、あえて自分で実装します：
+
+- コメント：自前で保存・承認し、コメント投稿者は GitHub OAuth でログイン
+- 認証：管理者のログインはサードパーティではなく自作のセッションで
+- 検索：Postgres の \`tsvector\` で全文検索
+- カウント：閲覧数は Redis に保存
+
+## ロードマップ
+
+プロジェクトは六つの段階に分かれ、各段階の終わりには必ずデプロイできる状態にします：
+
+1. フロントエンド：デザイントークン、レイアウト、トップページの一覧、記事ページ
+2. API：Hono + Drizzle + PostgreSQL
+3. 管理画面：ログイン、エディタ、下書きと公開
+4. レンダリングとキャッシュ：ISR、公開時にフロントエンドへ revalidate を通知
+5. コメント、閲覧数、全文検索
+6. エンジニアリング：Docker、CI、VPS へのデプロイ、ログと監視
+
+> ブログは手段であり、目的は学ぶことです。
+
+いまご覧になっているのは第一段階の成果物です。記事はすべてまだローカルのダミーデータです。`,
   },
 ];

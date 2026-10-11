@@ -139,6 +139,43 @@
   white-space: nowrap;
 }
 
+/* 已有译文的语言标记：比状态徽章更安静的描边小字，免得一行里抢眼的东西太多 */
+.translations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-0-5);
+  margin-top: var(--space-0-5);
+}
+
+.locale {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125em;
+  padding: 0 var(--space-0-5);
+  border: 0.5px solid var(--color-separator);
+  border-radius: var(--radius-sm);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+}
+
+/*
+ * 过时的译文：和编辑页"原文已更新"同一个黄色。黄色底和背景的对比度不够（浅色约 1.15:1），不能只靠它区分：
+ * 再加一个图标，边框换成对比度 ≥ 3:1 的输入框描边色
+ */
+.localeOutdated {
+  border-color: var(--color-field-border);
+  background: var(--color-highlight-fill);
+  color: var(--color-label);
+}
+
+.localeIcon {
+  flex: none;
+  width: 1em;
+  height: 1em;
+}
+
 /* 窄屏：状态徽章在左，两个时间在右侧上下排列 */
 .meta {
   grid-area: meta;

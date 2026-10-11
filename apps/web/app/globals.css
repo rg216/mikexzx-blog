@@ -32,6 +32,27 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/*
+ * font-family 继承的是祖先算好的值：带 lang 属性的元素要用自己的 --font-family-text 重新算一遍，
+ * 按语言调整的字体栈（tokens.css 的 :lang()）才对它生效。
+ */
+[lang] {
+  font-family: var(--font-family-text);
+}
+
+/*
+ * 日文排版：
+ * - line-break: strict：小写假名（ゃ、ッ）、长音符等不出现在行首（日文的禁则处理）；
+ * - 标题用 word-break: auto-phrase：按词组换行，不把一个词拆在两行（只对 lang=ja 生效，浏览器不支持时照常换行）。
+ */
+:lang(ja) {
+  line-break: strict;
+}
+
+:is(h1, h2, h3, h4):lang(ja) {
+  word-break: auto-phrase;
+}
+
 img,
 picture,
 svg,

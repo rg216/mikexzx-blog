@@ -1,0 +1,114 @@
+/*
+ * 译文编辑器自己的样式。工具栏、标题框、正文框、预览框直接用 PostEditorForm.module.css 的类；
+ * 这里只有和文章编辑器不同的部分：元信息区的提示，以及多了"原文"一栏的分栏。
+ */
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: var(--content-width);
+}
+
+.language {
+  color: var(--color-label);
+  font-weight: var(--font-weight-semibold);
+}
+
+.note {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+/* 过时提示：和"原文已更新"徽章同一个黄色，正文色文字；不是 Banner（那是给错误用的，带 role=alert） */
+.outdated {
+  padding: var(--space-1) var(--space-1-5);
+  border-radius: var(--radius-md);
+  background: var(--color-highlight-fill);
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+}
+
+.copySource {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+/* ---------- 编辑 / 预览 / 原文 ---------- */
+
+.narrowSwitch {
+  margin-bottom: calc(-1 * var(--space-1));
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+/* 窄屏：编辑框和右栏（预览或原文）只显示一个 */
+.split[data-view="edit"] .sidePane,
+.split:not([data-view="edit"]) .editPane {
+  display: none;
+}
+
+.sideHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+/* 和 TextField 的 label 同样式，两栏标题对齐 */
+.sideTitle {
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  letter-spacing: normal;
+}
+
+/* 原文的标题：和正文预览放在一起对照，用文章页标题的字重，字号小一级（这里只是参照） */
+.sourceTitle {
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+/* 宽屏不显示三选一（编辑框总在左边）；窄屏不显示右栏的二选一 */
+@media (width < 70rem) {
+  .wideSwitch {
+    display: none;
+  }
+}
+
+@media (min-width: 70rem) {
+  .narrowSwitch {
+    display: none;
+  }
+
+  .split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    /* 同 PostEditorForm：两栏一起占满视口剩余高度，各自内部滚动 */
+    height: max(
+      var(--editor-min-height),
+      calc(100dvh - env(safe-area-inset-top) - var(--nav-height) - var(--admin-toolbar-height) - var(--space-4))
+    );
+  }
+
+  /* 与上面窄屏的隐藏规则同样的优先级、写在后面，覆盖它 */
+  .split[data-view] .editPane,
+  .split[data-view] .sidePane {
+    display: flex;
+  }
+
+  /* 右栏标题行里有 44 高的分段控件，比左栏的 label 高：去掉下边距，尽量让两边的框顶部接近 */
+  .sideHeader {
+    margin-bottom: 0;
+  }
+}

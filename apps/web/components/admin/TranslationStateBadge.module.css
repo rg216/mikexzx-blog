@@ -1,0 +1,21 @@
+/* 与 ui/Badge 同样的外形；ui/Badge 只有 neutral / success 两种色调，"原文已更新"需要第三种 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0.125em var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  white-space: nowrap;
+}
+
+/*
+ * 醒目但不是错误：黄色底 + label 色文字（搜索高亮同一个 token）。
+ * 不用红色——过时的译文仍然可以读，只是需要作者找时间更新，不是故障。
+ */
+.outdated {
+  background: var(--color-highlight-fill);
+  color: var(--color-label);
+}

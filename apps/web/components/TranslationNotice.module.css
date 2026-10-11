@@ -1,0 +1,32 @@
+/* 与正文栏对齐；安静的灰底，文字用 label 色（对比度和正文一样） */
+.notice {
+  display: flex;
+  gap: var(--space-1-5);
+  align-items: flex-start;
+  max-width: var(--content-width);
+  margin: 0 auto var(--space-3);
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-secondary-background);
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  line-height: var(--line-height-snug);
+}
+
+.icon {
+  flex: none;
+  width: 1.25em;
+  height: 1.25em;
+  /* 与第一行文字垂直居中：行高 1.45，图标 1.25em */
+  margin-top: 0.1em;
+  color: var(--color-secondary-label);
+}
+
+.text {
+  min-width: 0;
+}
+
+.link {
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}

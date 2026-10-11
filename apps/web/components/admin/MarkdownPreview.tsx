@@ -1,5 +1,6 @@
 "use client";
 
+import type { Locale } from "@blog/shared";
 import { useEffect, useRef, useState } from "react";
 import prose from "@/components/Prose.module.css";
 import { renderMarkdown } from "@/lib/markdown";
@@ -9,6 +10,8 @@ type Props = {
   markdown: string;
   /** 停止输入多久后再渲染（毫秒） */
   delay?: number;
+  /** 正文的语言：脚注标签等渲染器生成的文字随它变，和读者看到的文章页一致（默认中文） */
+  locale?: Locale;
 };
 
 /**
@@ -19,7 +22,7 @@ type Props = {
  * 代价是 unified 全家桶进了编辑器页面的客户端包（只有这个后台路由会加载）。
  * 防抖：长文每次渲染要几毫秒到几十毫秒，逐字渲染会拖慢打字。
  */
-export function MarkdownPreview({ markdown, delay = 200 }: Props) {
+export function MarkdownPreview({ markdown, delay = 200, locale }: Props) {
   const [html, setHtml] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const renderedOnce = useRef(false);
@@ -30,7 +33,7 @@ export function MarkdownPreview({ markdown, delay = 200 }: Props) {
     const timer = setTimeout(
       async () => {
         try {
-          const output = await renderMarkdown(markdown);
+          const output = await renderMarkdown(markdown, { locale });
           if (cancelled) return;
           renderedOnce.current = true;
           setHtml(output);
@@ -46,7 +49,7 @@ export function MarkdownPreview({ markdown, delay = 200 }: Props) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [markdown, delay]);
+  }, [markdown, delay, locale]);
 
   if (markdown.trim() === "") {
     return <p className={styles.placeholder}>正文预览会显示在这里。</p>;

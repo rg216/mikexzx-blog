@@ -41,6 +41,32 @@ describe("renderMarkdown", () => {
   });
 });
 
+describe("footnote labels", () => {
+  const source = "Text[^a] and again[^a]\n\n[^a]: Note";
+
+  it("follow the content language", async () => {
+    const zh = await renderMarkdown(source);
+    expect(zh).toContain(">脚注</h2>");
+    expect(zh).toContain('aria-label="回到正文第 1 处引用"');
+    expect(zh).toContain('aria-label="回到正文第 1 处引用（第 2 次）"');
+
+    const en = await renderMarkdown(source, { locale: "en" });
+    expect(en).toContain(">Footnotes</h2>");
+    expect(en).toContain('aria-label="Back to reference 1"');
+    expect(en).toContain('aria-label="Back to reference 1-2"');
+
+    const ja = await renderMarkdown(source, { locale: "ja" });
+    expect(ja).toContain(">脚注</h2>");
+    expect(ja).toContain('aria-label="本文の参照箇所 1 に戻る"');
+  });
+
+  it("keep one pipeline per locale", async () => {
+    // 先渲染英文不会让之后的中文也变成英文标签
+    await renderMarkdown(source, { locale: "en" });
+    expect(await renderMarkdown(source, { locale: "zh" })).toContain(">脚注</h2>");
+  });
+});
+
 describe("images", () => {
   it("turns a standalone image into a figure with its title as caption", async () => {
     const html = await renderMarkdown('![一张图](/images/a.png "图注文字")');

@@ -1,4 +1,4 @@
-import type { PostCreateInput } from "@blog/shared";
+import { adminPostSchema, type Locale, type PostCreateInput } from "@blog/shared";
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/server";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeEach } from "vitest";
@@ -316,6 +316,16 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
     return res.body as { id: number; slug: string; publishedAt: string | null };
   }
 
+  /** 通过管理接口给文章保存一篇译文（依据当前原文：sourceHash 取自 GET /admin/posts/:id） */
+  async function translatePost(id: number, locale: Locale, input: { title?: string; contentMd?: string } = {}) {
+    const post = adminPostSchema.parse((await request("GET", `/admin/posts/${id}`)).body);
+    const res = await request("PUT", `/admin/posts/${id}/translations/${locale}`, {
+      body: { title: `${post.slug} (${locale})`, contentMd: `${post.slug} in ${locale}.`, ...input, sourceHash: post.sourceHash },
+    });
+    if (res.status !== 200 && res.status !== 201) throw new Error(`translatePost failed: ${res.status} ${JSON.stringify(res.body)}`);
+    return res;
+  }
+
   /**
    * 以某个 GitHub 用户走完整的登录流程，返回评论者 cookie（从 jar 里取走，
    * 这样同一个测试里可以有多个评论者，各自用 headers.cookie 传入）。
@@ -332,5 +342,5 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
     return `__Host-commenter=${token}`;
   }
 
-  return { db, app, redis, storage, request, loginCommenter, fakeGitHub, createPost, adminSessionCookie, jar, calls: fake.calls, revalidations };
+  return { db, app, redis, storage, request, loginCommenter, fakeGitHub, createPost, translatePost, adminSessionCookie, jar, calls: fake.calls, revalidations };
 }

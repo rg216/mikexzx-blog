@@ -15,3 +15,10 @@
 .link[aria-current="page"] {
   color: var(--color-label);
 }
+
+/* 窄屏收紧左右内边距（点击区域仍由 min-width 保证 44px）：英文的链接文字最宽，字号调大后也尽量放在一行 */
+@media (width < 46rem) {
+  .link {
+    padding-inline: var(--space-1);
+  }
+}

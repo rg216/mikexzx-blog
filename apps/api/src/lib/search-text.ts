@@ -1,4 +1,5 @@
 import type { HighlightedText, HighlightRange } from "@blog/shared";
+import { wordSafeEnd, wordSafeStart } from "./word-boundary.ts";
 
 /*
  * 全文搜索的分词，索引和查询共用这一套规则。
@@ -172,16 +173,23 @@ const segmenter = new Intl.Segmenter("zh-CN", { granularity: "grapheme" });
  * 匹配前保留一点上下文；截断处加省略号，高亮下标随之平移。没有匹配（只命中标题或标签）时取开头。
  */
 export function buildSnippet(text: string, highlights: HighlightRange[], { length = 120, context = 20 } = {}): HighlightedText {
-  const segments = Array.from(segmenter.segment(text), (s) => s.index);
+  const parts = Array.from(segmenter.segment(text));
+  const segments = parts.map((s) => s.index);
+  const graphemes = parts.map((s) => s.segment);
   const total = segments.length;
   const first = highlights[0];
 
   let from = 0;
+  let containing = 0;
   if (first) {
-    const containing = segments.findLastIndex((index) => index <= first.start);
+    containing = segments.findLastIndex((index) => index <= first.start);
     from = Math.max(0, Math.min(containing - context, total - length));
   }
-  const to = Math.min(total, from + length);
+  // 两端都不切开西文单词（"…ounts live in" → "…live in"）；开头最多前进到第一处匹配，结尾不退到它之前
+  from = wordSafeStart(graphemes, from, containing);
+  const rawTo = Math.min(total, from + length);
+  const safeTo = wordSafeEnd(graphemes, rawTo);
+  const to = safeTo > containing ? safeTo : rawTo;
   let startIndex = segments[from] ?? 0;
   let endIndex = to < total ? (segments[to] ?? text.length) : text.length;
   // 截断处的空格去掉（"… 文字" → "…文字"），直接改下标而不是 trim()，否则高亮位置会错开

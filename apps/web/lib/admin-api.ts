@@ -15,14 +15,18 @@ import {
   adminImageSchema,
   type AdminPost,
   adminPostSchema,
+  type AdminTranslation,
+  adminTranslationSchema,
   type ApiError,
   type ApiErrorCode,
   apiErrorSchema,
   type ImageUpload,
   type ImageUploadRequest,
   imageUploadSchema,
+  type Locale,
   type PostCreateInput,
   type PostUpdateInput,
+  type TranslationInput,
 } from "@blog/shared";
 import { z } from "zod";
 
@@ -188,6 +192,24 @@ export function createAdminApi(options: JsonClientOptions = {}) {
 
     async deletePost(id: number): Promise<void> {
       await request("DELETE", `/posts/${id}`);
+    },
+
+    /*
+     * 译文：每篇文章每种语言一篇，用 (文章 id, 语言) 定位。
+     * 没有译文时 GET 返回 404——和"文章不存在"同一个错误码，所以调用方先看 AdminPost.translations
+     * 里有没有这种语言，有才来取，不靠 404 判断"还没有译文"。
+     */
+    async getTranslation(postId: number, locale: Locale): Promise<AdminTranslation> {
+      return parseJson(await request("GET", `/posts/${postId}/translations/${locale}`), adminTranslationSchema);
+    },
+
+    /** 新建或整体替换（PUT 幂等：重复提交同样的内容结果相同）；摘要和搜索索引由 API 生成 */
+    async saveTranslation(postId: number, locale: Locale, input: TranslationInput): Promise<AdminTranslation> {
+      return parseJson(await request("PUT", `/posts/${postId}/translations/${locale}`, input), adminTranslationSchema);
+    },
+
+    async deleteTranslation(postId: number, locale: Locale): Promise<void> {
+      await request("DELETE", `/posts/${postId}/translations/${locale}`);
     },
 
     /** 申请上传一张图片：拿到预签名 URL（见 lib/image-upload.ts） */

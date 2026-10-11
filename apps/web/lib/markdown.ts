@@ -4,7 +4,8 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
-import type { PostImageMeta } from "@blog/shared";
+import { defaultLocale, type Locale, type PostImageMeta } from "@blog/shared";
+import { getDictionary } from "./i18n";
 import { rehypeFigure } from "./rehype-figure";
 import { rehypeImages } from "./rehype-images";
 
@@ -17,30 +18,49 @@ import { rehypeImages } from "./rehype-images";
  * 输出字符串而不是 React 元素：字符串可以直接缓存/存库，渲染时用 dangerouslySetInnerHTML。
  * 代价是没法把 <img> 换成 next/image 之类的组件——需要时再换 hast-util-to-jsx-runtime。
  */
-const htmlProcessor = unified()
-  .use(remarkParse)
-  .use(remarkGfm)
-  .use(remarkRehype, {
-    footnoteLabel: "脚注",
-    footnoteBackLabel: (referenceIndex, rereferenceIndex) =>
-      `回到正文第 ${referenceIndex + 1} 处引用${rereferenceIndex > 1 ? `（第 ${rereferenceIndex} 次）` : ""}`,
-  })
-  .use(rehypeSanitize, {
-    ...defaultSchema,
-    // id 前缀（防 DOM clobbering）已由 remark-rehype 加过（user-content-fn-1）；
-    // sanitize 默认会再加一次，变成 user-content-user-content-fn-1，而 href 不变，脚注链接就断了。
-    // 这里关掉第二次：原始 HTML 在上一步已被丢弃，用户写不出任意 id，带 id 的只有已加前缀的脚注。
-    clobberPrefix: "",
-  })
-  .use(rehypeFigure)
-  .use(rehypeStringify)
-  .freeze();
+function createProcessor(locale: Locale) {
+  // 脚注标题和"回到正文"的读屏文字跟着正文的语言（显示原文时是原文语言），不是界面语言
+  const labels = getDictionary(locale).markdown;
+  return unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype, {
+      footnoteLabel: labels.footnoteLabel,
+      footnoteBackLabel: (referenceIndex, rereferenceIndex) => labels.footnoteBackLabel(referenceIndex + 1, rereferenceIndex),
+    })
+    .use(rehypeSanitize, {
+      ...defaultSchema,
+      // id 前缀（防 DOM clobbering）已由 remark-rehype 加过（user-content-fn-1）；
+      // sanitize 默认会再加一次，变成 user-content-user-content-fn-1，而 href 不变，脚注链接就断了。
+      // 这里关掉第二次：原始 HTML 在上一步已被丢弃，用户写不出任意 id，带 id 的只有已加前缀的脚注。
+      clobberPrefix: "",
+    })
+    .use(rehypeFigure)
+    .use(rehypeStringify)
+    .freeze();
+}
+
+/** 每种语言一条冻结的管线，用到时才建 */
+const processors = new Map<Locale, ReturnType<typeof createProcessor>>();
+
+function processorFor(locale: Locale) {
+  let processor = processors.get(locale);
+  if (!processor) {
+    processor = createProcessor(locale);
+    processors.set(locale, processor);
+  }
+  return processor;
+}
 
 /**
  * images：文章引用的媒体库图片（API 随文章返回），有了它图片才会带上宽高和 srcset。
+ * locale：正文的语言，决定脚注区的文字；不传为默认语言（后台预览原文）。
  * 冻结的管线调用一下得到一个副本，在副本上接 rehypeImages——它在 rehypeFigure 之后运行，能知道图片在不在 figure 里。
  */
-export async function renderMarkdown(markdown: string, { images }: { images?: Record<string, PostImageMeta> } = {}): Promise<string> {
-  const file = await htmlProcessor().use(rehypeImages, { images }).process(markdown);
+export async function renderMarkdown(
+  markdown: string,
+  { images, locale = defaultLocale }: { images?: Record<string, PostImageMeta>; locale?: Locale } = {},
+): Promise<string> {
+  const file = await processorFor(locale)().use(rehypeImages, { images }).process(markdown);
   return String(file);
 }

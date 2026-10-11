@@ -14,12 +14,12 @@ import {
 import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { images, mediaFolders, postImages, posts } from "../db/schema.ts";
+import { images, mediaFolders, postImages, posts, postTranslations } from "../db/schema.ts";
 import { HttpError } from "../lib/errors.ts";
 import { readImageDimensions } from "../lib/image-dimensions.ts";
 import type { ObjectStorage } from "../storage.ts";
 
-/** db 本身或事务对象 */
+/** db 本身或事务对象（事务上的查询不能并发，见 post-common.ts） */
 type Executor = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /** 上传 URL 的有效期：够传完一张 10MB 的图，又不会长期有效 */
@@ -262,10 +262,18 @@ export async function deleteFolder(db: Db, id: number): Promise<boolean> {
 
 // ---------- 文章引用 ----------
 
-/** 按正文重建这篇文章引用的图片（保存文章时在同一个事务里调用） */
-export async function syncPostImages(db: Executor, postId: number, contentMd: string): Promise<void> {
+/**
+ * 按正文重建这篇文章引用的图片（保存文章或译文时在同一个事务里调用）。
+ * 引用关系 = 原文和所有译文正文里图片的并集：译文里可能插了原文没有的图（比如换成英文截图）。
+ * 这样删除只被译文用到的图片同样需要确认，渲染译文时也能拿到这些图片的宽高。
+ * 正文从库里读（而不是由调用方传入）：保存原文时不必再把各篇译文读出来传进来，也不会漏掉哪一段。
+ */
+export async function syncPostImages(db: Executor, postId: number): Promise<void> {
+  // 总在事务里调用：同一个事务连接上的查询要一条接一条地发（不能 Promise.all，见 post-common.ts 的 Executor）
+  const original = await db.select({ contentMd: posts.contentMd }).from(posts).where(eq(posts.id, postId));
+  const translations = await db.select({ contentMd: postTranslations.contentMd }).from(postTranslations).where(eq(postTranslations.postId, postId));
   await db.delete(postImages).where(eq(postImages.postId, postId));
-  const keys = imageKeysIn(contentMd);
+  const keys = [...new Set([...original, ...translations].flatMap((row) => imageKeysIn(row.contentMd)))];
   if (keys.length === 0) return;
   const found = await db
     .select({ id: images.id })
@@ -276,8 +284,8 @@ export async function syncPostImages(db: Executor, postId: number, contentMd: st
 
 /** 全部文章重建一遍（迁移后执行：新加这张表时补齐，以后识别规则变了也能一次修正）。返回处理的篇数 */
 export async function rebuildAllPostImages(db: Db): Promise<number> {
-  const rows = await db.select({ id: posts.id, contentMd: posts.contentMd }).from(posts);
-  for (const row of rows) await syncPostImages(db, row.id, row.contentMd);
+  const rows = await db.select({ id: posts.id }).from(posts);
+  for (const row of rows) await syncPostImages(db, row.id);
   return rows.length;
 }
 

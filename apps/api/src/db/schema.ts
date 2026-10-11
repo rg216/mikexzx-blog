@@ -1,3 +1,4 @@
+import { defaultSourceLocale, type Locale } from "@blog/shared";
 import { sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { bigint, boolean, check, customType, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
@@ -10,6 +11,13 @@ const timestamptz = () => timestamp({ withTimezone: true, precision: 3 });
 
 // Drizzle 没有内置 tsvector 类型。读写都用文本形式（'lexeme':1A …），由 lib/search-text.ts 生成
 const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
+
+/*
+ * 语言列用 text + 格式 CHECK，不用 pg enum、也不用列举具体语言的 CHECK：
+ * 加一种语言只改 @blog/shared 的 locales，不该需要数据库迁移。值是否是站点支持的语言由 zod 的 localeSchema 把关，
+ * 数据库只保证它长得像一个 BCP 47 标签（防止写进空串、大小写混乱之类的垃圾值）。
+ */
+const localeFormat = (column: AnyPgColumn) => sql`${column} ~ '^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$'`;
 
 export const postStatus = pgEnum("post_status", ["draft", "published"]);
 
@@ -25,8 +33,11 @@ export const posts = pgTable(
     excerpt: text().notNull(),
     status: postStatus().notNull().default("draft"),
     // 全文搜索索引（v4b），写入时由 API 生成。NULL 表示待生成：迁移脚本跑完迁移后会补齐，
-    // 所以改了分词规则时，写一个 "UPDATE posts SET search_vector = NULL" 的迁移即可全部重建
+    // 所以改了分词规则时，写一个把 posts 和 post_translations 两张表的 search_vector 都设为 NULL 的迁移即可全部重建
+    // （只清这一张的话译文仍按旧规则切词，见下面 post_translations 的说明）
     searchVector: tsvector(),
+    // 原文（title / content_md）的语言（v4.5）。目前都是中文，预留以后用别的语言写原文
+    sourceLocale: text().$type<Locale>().notNull().default(defaultSourceLocale),
     publishedAt: timestamptz(),
     createdAt: timestamptz().notNull().defaultNow(),
     updatedAt: timestamptz()
@@ -37,6 +48,7 @@ export const posts = pgTable(
   (t) => [
     // 不变量写在数据库里：即使 API 有 bug，也存不进"已发布但没有发布时间"的文章
     check("posts_published_has_date", sql`${t.status} = 'draft' OR ${t.publishedAt} IS NOT NULL`),
+    check("posts_source_locale_format", localeFormat(t.sourceLocale)),
     // 公开列表的查询条件 + 排序 + 游标，正好对应这个部分索引
     index("posts_published_feed_idx")
       .on(t.publishedAt.desc(), t.id.desc())
@@ -45,6 +57,45 @@ export const posts = pgTable(
     index("posts_search_idx")
       .using("gin", t.searchVector)
       .where(sql`${t.status} = 'published'`),
+  ],
+);
+
+export const translationOrigin = pgEnum("translation_origin", ["machine", "human"]);
+
+/**
+ * 文章的译文（v4.5）。posts 本身就是原文；每种其他语言最多一篇译文。
+ * 译文没有单独的发布状态：文章已发布时，它的译文对读者可见。标签不翻译，所有语言共用 post_tags。
+ */
+export const postTranslations = pgTable(
+  "post_translations",
+  {
+    postId: integer()
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    locale: text().$type<Locale>().notNull(),
+    title: text().notNull(),
+    contentMd: text().notNull(),
+    // 和原文一样写入时生成，长度按语言（localeInfo[locale].excerptLength）
+    excerpt: text().notNull(),
+    // 生成 / 保存译文时所依据的原文指纹（lib/source-hash.ts）：与当前原文的指纹不同，说明原文在之后改过
+    sourceHash: text().notNull(),
+    origin: translationOrigin().notNull(),
+    // 机器翻译用的模型；人工译文为 NULL
+    model: text(),
+    translatedAt: timestamptz().notNull().defaultNow(),
+    // 同 posts.search_vector：NULL 表示待生成，db:migrate 跑完迁移后补齐
+    searchVector: tsvector(),
+  },
+  (t) => [
+    // 一篇文章每种语言一篇译文；(post_id, locale) 也服务于"取某篇文章的所有译文"
+    primaryKey({ columns: [t.postId, t.locale] }),
+    check("post_translations_locale_format", localeFormat(t.locale)),
+    // 人工译文不应该带模型名（反过来"机器译文必须有模型名"不强制：v5.5 之前没有机器译文，留给那时决定）
+    check("post_translations_model_only_for_machine", sql`${t.origin} = 'machine' OR ${t.model} IS NULL`),
+    // 按语言列文章 / 统计标签：以 locale 开头才能用索引（主键以 post_id 开头，用不上）
+    index("post_translations_locale_idx").on(t.locale, t.postId),
+    // 每种语言一套搜索索引：译文的索引在这里，原文的在 posts.search_vector
+    index("post_translations_search_idx").using("gin", t.searchVector),
   ],
 );
 

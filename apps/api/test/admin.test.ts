@@ -1,9 +1,11 @@
 import { adminPostSchema } from "@blog/shared";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { posts } from "../src/db/schema.ts";
 import { setupTestApp, WEB_ORIGIN } from "./helpers.ts";
 
-const { app, request, createPost, adminSessionCookie, revalidations } = setupTestApp();
+const { app, db, request, createPost, adminSessionCookie, revalidations } = setupTestApp();
 
 describe("authentication", () => {
   it("rejects requests without a session", async () => {
@@ -110,6 +112,26 @@ describe("PATCH /admin/posts/:id", () => {
     expect(Date.parse(updated.updatedAt)).toBeGreaterThanOrEqual(Date.parse(created.updatedAt));
   });
 
+  it("cuts the regenerated excerpt to the length of the original's language", async () => {
+    const words = Array.from({ length: 80 }, (_, i) => `word${i}`).join(" ");
+    const zh = await createPost({ slug: "zh" });
+    const en = await createPost({ slug: "en" });
+    // 预留的 source_locale：原文是英文的文章（直接改库，API 还不能创建这种文章）
+    await db.update(posts).set({ sourceLocale: "en" }).where(eq(posts.id, en.id));
+
+    const excerptAfterPatch = async (id: number) =>
+      adminPostSchema.parse((await request("PATCH", `/admin/posts/${id}`, { body: { contentMd: words } })).body).excerpt;
+    // 英文 240 个字素，截断处退回到单词之间
+    const enExcerpt = await excerptAfterPatch(en.id);
+    expect(enExcerpt.length).toBeGreaterThan(200);
+    expect(enExcerpt.length).toBeLessThanOrEqual(241);
+    expect(enExcerpt).toMatch(/word\d+…$/);
+    expect(words.startsWith(enExcerpt.slice(0, -1))).toBe(true);
+    expect(words.charAt(enExcerpt.length - 1)).toBe(" ");
+    // 中文原文 120 个字素
+    expect((await excerptAfterPatch(zh.id)).length).toBeLessThanOrEqual(121);
+  });
+
   it("sets publishedAt on first publish and keeps it when unpublished and republished", async () => {
     const { id } = await createPost({ slug: "p" });
     const published = adminPostSchema.parse((await request("PATCH", `/admin/posts/${id}`, { body: { status: "published" } })).body);
@@ -206,19 +228,22 @@ describe("revalidating the public site", () => {
     await request("PATCH", `/admin/posts/${id}`, { body: { status: "published" } });
     await request("DELETE", `/admin/posts/${id}`);
 
+    // 原文的变化影响所有语言的列表和文章页
+    const lists = ["posts:zh", "posts:en", "posts:ja"];
+    const pages = (slug: string) => [`post:${slug}:zh`, `post:${slug}:en`, `post:${slug}:ja`];
     expect(revalidations).toEqual([
-      ["posts", "post:a"], // 发布
-      ["posts", "post:a"], // 编辑已发布的文章
-      ["posts", "post:a", "post:b"], // 改 slug：旧地址也要失效（变成 404）
-      ["posts", "post:b"], // 撤回为草稿
-      ["posts", "post:b"], // 重新发布
-      ["posts", "post:b"], // 删除
+      [...lists, ...pages("a")], // 发布
+      [...lists, ...pages("a")], // 编辑已发布的文章
+      [...lists, ...pages("a"), ...pages("b")], // 改 slug：旧地址也要失效（变成 404）
+      [...lists, ...pages("b")], // 撤回为草稿
+      [...lists, ...pages("b")], // 重新发布
+      [...lists, ...pages("b")], // 删除
     ]);
   });
 
   it("notifies when a post is created as published", async () => {
     await createPost({ slug: "live", status: "published" });
-    expect(revalidations).toEqual([["posts", "post:live"]]);
+    expect(revalidations).toEqual([["posts:zh", "posts:en", "posts:ja", "post:live:zh", "post:live:en", "post:live:ja"]]);
   });
 
   it("does not notify when the write fails", async () => {

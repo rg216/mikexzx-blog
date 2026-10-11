@@ -36,8 +36,9 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - `bun run db:migrate` / `db:seed`：迁移本地库 / 写入初始文章；改了 `schema.ts` 后 `bun run db:generate` 生成迁移
 - `bun run dev`：同时启动 API（:8787）和前端（:3000）
 - `bun run build`：构建前端（构建时会请求 API，需要 API 在运行）
+  - macOS 上本地 `next start` 不要请求大小写混用的网址（`/eN/about`）：Next 把 ISR 结果按网址路径存成文件，APFS 不区分大小写，`/eN/about` 的 404 会覆盖 `/en/about` 的缓存，重启也不恢复。出现了就 `rm -rf apps/web/.next/server/route-cache` 或重新构建；端到端测试放在 Linux（CI / Docker）上跑。线上（Vercel、以后的 VPS）是 Linux，不受影响
 - `bun run test` / `lint` / `typecheck`：对所有 workspace 执行（API 测试连 `blog_test`、Redis 15 号库和 RustFS 测试桶，需要 `docker compose up -d`）
-- 前端目录：`app/(site)/` 前台（SiteShell：导航 + 页脚）；`app/admin/login` 登录页；`app/admin/(panel)/` 需登录的后台（AdminNav + SessionGate）
+- 前端目录：没有 `app/layout.tsx`，两个根布局——`app/[lang]/layout.tsx` 前台（`<html lang>` 随语言变；SiteShell：导航 + 页脚），`app/admin/layout.tsx` 后台（固定 zh-CN）；共用的 metadata / viewport 在 `lib/root-metadata.ts`。`app/admin/login` 登录页；`app/admin/(panel)/` 需登录的后台（AdminNav + SessionGate）
 
 ## API 约定
 - API 用 Node 24 原生 type stripping 直接运行 TS：相对导入写 `.ts` 扩展名，只用可擦除语法（无 enum、参数属性等）
@@ -56,7 +57,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 
 ## 媒体库与图片（v2c）
 - 集中管理：图片可以被多篇文章重复引用，不属于任何一篇；后台 `/admin/media`（一层文件夹、搜索、只看未被引用、批量移动 / 删除），编辑器"插入图片"打开媒体选择器，粘贴 / 拖入仍直接上传
-- 引用关系从正文推导：保存文章时按正文里的图片 key 重建 `post_images`（`syncPostImages`），`db:migrate` 后全部重建一遍。按 key（`images/YYYY/MM/<16 位随机串>.<ext>`）而不是整个地址识别，以后换图片域名旧文章照样认得；删除仍被引用的图片要 `force`，界面上会列出受影响的文章
+- 引用关系从正文推导：保存文章或译文（含删除译文）时，按原文 + 所有译文正文里图片 key 的并集重建 `post_images`（`syncPostImages(db, postId)` 自己读库）；只被译文引用的图片同样算被引用。`db:migrate` 后全部重建一遍。按 key（`images/YYYY/MM/<16 位随机串>.<ext>`）而不是整个地址识别，以后换图片域名旧文章照样认得；删除仍被引用的图片要 `force`，界面上会列出受影响的文章
 - 上传流程（浏览器直传对象存储，文件不经过 API——Vercel 函数请求体上限 4.5MB）：
   1. 浏览器缩放（长边 ≤ 2560）并重新编码 JPEG/PNG/WebP，去掉 EXIF（GPS 位置），同时生成比原图窄的 640 / 1280 / 1920 版本（`<随机串>-640w.jpg`）；GIF、AVIF 原样上传、不生成版本
   2. `POST /admin/images`：API 记一笔待确认的图片，为原图和每个版本各签发预签名 PUT URL（5 分钟），content-type、content-length、cache-control 都签进去
@@ -85,35 +86,51 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - Postgres tsvector，分词在应用里做（`apps/api/src/lib/search-text.ts`，索引和查询共用）：Neon 没有中文分词扩展，内置分词器又不切中文
   - 中日韩文字切成单字 + 二元组，查询时二元组之间 AND（不用短语查询 `<->`：位置上限 16383，长文后半部分会悄悄搜不到）；其他文字按词切、前缀匹配；先 NFKC + 小写
   - 直接生成 tsvector / tsquery 字面量再 `::tsvector`，不用 `to_tsvector()`（避免本地和 Neon 的 locale 不同导致切词不一致）；用户输入只能变成带引号的词条，改变不了查询结构
-- `posts.search_vector` 写入文章时生成（标题 A、标签 B、正文 D；正文只索引前 3 万字，防止超过 tsvector 的 1MB 上限），GIN 部分索引；标签改名时一并重建用到它的其他文章（不改它们的 `updated_at`）
-- `search_vector` 为 NULL 表示待生成：`db:migrate` 跑完迁移后自动补齐。改了分词规则就用 `drizzle-kit generate --custom` 写一个 `UPDATE posts SET search_vector = NULL` 的迁移
-- `GET /search?q=`：按 `ts_rank` 排序，最多 20 条，不分页；返回高亮区间（UTF-16 下标），不返回 HTML；按 IP 限流
+- 每种语言一套索引：原文是这种语言的文章用 `posts.search_vector`（标题 A、标签 B、正文 D），其他文章用这种语言的译文 `post_translations.search_vector`（译文标题 A、不翻译的标签名 B、译文正文 D）。写入时生成，正文只索引前 3 万字（防止超过 tsvector 的 1MB 上限），各自有 GIN 部分索引；文章换标签、标签改名时一并重建用到它的原文和译文的索引（不改 `updated_at` / `translated_at`）
+- `search_vector` 为 NULL 表示待生成（两张表都是）：`db:migrate` 跑完迁移后自动补齐。改了分词规则就用 `drizzle-kit generate --custom` 写一个迁移，**两张表都要清空**：`UPDATE posts SET search_vector = NULL; UPDATE post_translations SET search_vector = NULL;`（只清 posts 的话，译文仍按旧规则切词，而查询按新规则，其他语言的搜索会悄悄失效）
+- `GET /search?q=&locale=`：locale 默认 zh，不在 `locales` 里的返回 400。原文和译文两路查询（各自走自己的 GIN 索引、各取前 20），在内存里按 `ts_rank`、发布时间、id 合并后取 20 条，不分页；返回高亮区间（UTF-16 下标），不返回 HTML；按 IP 限流
+- 结果片段和列表摘要一样按语言取长度（`localeInfo.excerptLength`），截断不切开西文单词（`lib/word-boundary.ts`，摘要和片段共用；片段开头最多前进到第一处匹配、结尾不退到匹配之前）
 - 前端 `/search` 是静态页，浏览器经 `/api/search` 请求（服务端渲染的话 API 看到的是 Vercel 函数的 IP，所有读者共用限流额度）；输入防抖 250ms，查询词同步到 `?q=`
 
 ## 渲染与缓存（v3）
 - 前台页面是 ISR：构建时预生成，新 slug 首次访问时生成；数据请求带 `next: { revalidate: 3600, tags }`
-- 缓存标签定义在 `@blog/shared` 的 `cacheTags`：列表类 `posts`，单篇 `post:<slug>`
-- API 写入文章后（`tagsForChange`：只要写入前后有一边是已发布）调用前端 `POST /hooks/revalidate`（Bearer `REVALIDATE_SECRET`，两个项目共享），前端 `revalidateTag(tag, { expire: 0 })`
+- 缓存标签定义在 `@blog/shared` 的 `cacheTags`，按语言区分：列表类 `posts:<locale>`，单篇 `post:<slug>:<locale>`
+- API 写入文章后（`tagsForChange`：只要写入前后有一边是已发布，所有语言都失效；保存 / 删除译文用 `tagsForTranslationChange`：只失效该语言，译文从无到有 / 从有到无时再加其他语言的文章页）调用前端 `POST /hooks/revalidate`（Bearer `REVALIDATE_SECRET`，两个项目共享），前端 `revalidateTag(tag, { expire: 0 })`
 - 通知失败只记日志、不影响写入；一小时定时刷新兜底。`/hooks` 不能放在 `/api` 下（`/api/*` 整体代理给 API）
 
-## 多语言（计划：v4.5 框架，v5.5 自动翻译）
+## 多语言（v4.5 框架；v5.5 大模型翻译）
+- 落地方式（v4.5）：
+  - 中文网址不加前缀：`next.config.ts` 的 rewrites（afterFiles）把不以 en / ja / admin / api / hooks / _next 开头的路径重写到 `/zh/…`（正则由 `lib/locale-routing.ts` 按 `locales` 生成）；`/zh/…` 因此变成 `/zh/zh/…` → 404，中文没有两套网址。不用 proxy：rewrites 静态匹配，ISR 照常命中缓存
+  - `[lang]` 不设 `dynamicParams = false`：Next 要求路径上每一段都允许按需生成，设了会让新 slug 也 404；不支持的语言由各页面的 `requireLocale()` 返回 404
+  - 网址工具 `lib/i18n/paths.ts`（`localePath` / `stripLocale` / `switchLocalePath`）；`usePathname()` 服务端是 `/zh/about`、浏览器是 `/about`，两种都要认
+  - 界面字典 `lib/i18n/dictionaries/{zh,en,ja}.ts`；客户端组件经 `LocaleProvider` + `useDictionary()` 取（函数不能作为 props 传给客户端组件）。前台不显示 API 返回的中文 message，错误按原因代码查字典
+  - hreflang / canonical 是绝对网址，域名取前端环境变量 `SITE_URL`（默认 https://mikexzx-blog.vercel.app）；文章页只列真实存在的语言，x-default 指向原文；显示原文回退时 canonical 指向原文
+  - 已知限制（Next 16.4）：`notFound()` 的 404 响应状态和 noindex 正确，但 HTML 是 Next 的恢复壳（`__next_error__`），本地化的 404 页面要等 JS 运行后才显示
+  - 页面里夹着的另一种语言要标 `lang`（`lib/i18n/content-lang.ts`）：回退显示的原文标题和正文、不翻译的标签名（en / ja 页面里标 zh-CN，标在每个标签名上，不标在带界面文案的容器上）
+  - og:locale 用 `localeInfo[…].ogLocale`（zh_CN / en_US / ja_JP），不由 BCP 47 标签推导；文章页的 openGraph 会整个替换布局的，要展开 `ogBase()` 保留 site_name
+  - 后台：`/admin/posts/[id]/translations/[locale]` 手工编辑译文（PUT 整体保存：新建 201、替换 200；保存时带加载时的原文指纹）。后台的语言名用中文（英语 / 日语，`adminLocaleName`），语言自称只在前台的切换菜单里用
+  - 译文没有草稿状态，所以保存前拦下"还是原文"的内容（`checkUntranslated`）：标题和正文都和原文相同（复制原文后顺手按了 ⌘S）拒绝保存；只有一项相同时要确认（产品名之类的标题可能本来就相同）。原文在编辑页打开后又被改过时，提示"载入最新原文"再对照保存
 - 语言：中文（`zh`，原文，根路径不加前缀）、英文（`/en`）、日文（`/ja`）。语言列表集中定义在 `@blog/shared`（代码用 BCP 47 标签），加一种语言 = 在列表里加一项 + 补齐界面字典 + 必要时调整字体和分词，其余代码不写死具体语言
-- 现有中文网址一个都不变；不按 Accept-Language 自动跳转（常猜错、干扰搜索引擎），只显示切换语言的提示
+- 现有中文网址一个都不变；不按 Accept-Language 自动跳转（常猜错、干扰搜索引擎）。v4.5 只在导航栏提供切换语言菜单（`components/LanguageSwitcher.tsx`：Popover API，普通 `<a>` 整页跳转以切换 `<html lang>` 和字体；搜索页的 `?q=` 跟着带过去，其他查询参数不带）；按 Accept-Language 显示切换提示条以后再做
 - 界面文案：自己实现的 TS 字典，类型保证每种语言的 key 齐全（缺翻译编译报错）；日期、数字用 `Intl` 按语言格式化
 - `<html lang>` 必须随语言变化：中日共用汉字（Han unification），浏览器靠 lang 选字形；字体栈按语言调整顺序（ja 优先 Hiragino Sans / Noto Sans CJK JP，zh 优先 PingFang SC）
 - 文章译文：`post_translations`（post_id, locale, title, content_md, excerpt, `source_hash` 生成时原文的指纹, `origin` machine | human, model, translated_at）；`posts` 本身就是原文，预留 `source_locale`（默认 zh）以便以后用别的语言写原文
   - 每种语言是独立的 ISR 页面（`/en/posts/<slug>`，slug 各语言相同），互相用 hreflang 标注；没有译文的文章不出现在该语言的列表里（避免重复内容），直接访问时显示原文并提示
   - 搜索按语言分别建索引（日文的假名、汉字已按中日韩二元组切分，英文按词）；缓存标签需要区分语言
   - 评论不分语言，所有语言版本共用同一组评论
-- 自动翻译（v5.5）：发布 / 更新后异步调用 Claude API 生成译文（发布按钮不等待）
+- 原则：**内容准确优先于翻译完整**。宁可某种语言少一篇文章（不进列表、直接访问显示原文 + 提示），也不给读者看可能错误的译文：
+  - 没有译文就显示原文，不做读者触发的即时翻译；结构校验不通过的机器译文不发布
+  - 原文改过之后，译文页明确标注"原文已更新"并链接原文；后台标出过时的译文
+- 自动翻译（v5.5）：在文章编辑页由作者手动点击"生成译文"调用 Claude API（发布时可以顺手生成，但不自动、不阻塞发布）
   - 只由作者的操作触发，读者和爬虫触发不了 LLM 调用，成本可控；不做 X 那种读者点了才翻译（会被刷额度、搜索引擎收录不到）
-  - 原文指纹变了：机器译文自动重新生成；人工改过的不覆盖，后台提示"原文已更新"
-  - 保护 Markdown 结构：代码块、链接地址、图片地址不得改动，生成后校验（数量和地址与原文一致），不通过就不发布这次结果
+  - 生成结果先进编辑器给作者过目，保存后才对读者可见（与手工译文同一条保存路径，origin 记为 machine、记录 model）
+  - 原文指纹变了：后台提示"原文已更新"，作者点"重新生成"；人工改过的译文不会被覆盖（重新生成前确认）
+  - 保护 Markdown 结构：代码块、链接地址、图片地址不得改动，生成后校验（数量和地址与原文一致），不通过就不采用这次结果
   - 译文页标注"机器翻译"并链接原文；以后评论可做按需翻译（仅登录用户、限流）
 
 ## 设计规范（Apple HIG 的 Web 翻译）
 - 样式只引用 design tokens（CSS 变量），不写死颜色、字号、间距
-- 字体用系统字体栈：`-apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", sans-serif`（Apple 设备上英文即为 San Francisco）；CJK 正文行高 1.6（参考 Newsroom 的约 1.45 与常规 1.7 之间）
+- 字体用系统字体栈：`-apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", sans-serif`（Apple 设备上英文即为 San Francisco）；`:lang(ja)` 换成日文优先的栈（Hiragino Sans、Hiragino Kaku Gothic ProN、Noto Sans CJK JP …），带 `lang` 属性的元素重新解析 `--font-family-text`（回退显示原文时正文用中文字形）；日文正文 `line-break: strict`、标题 `word-break: auto-phrase`。CJK 正文行高 1.6（参考 Newsroom 的约 1.45 与常规 1.7 之间）
 - 不得嵌入 SF Pro 网络字体，不得使用 SF Symbols（许可证仅限 Apple 平台 app）；图标用 Lucide
 - 页脚 "Created with Claude" 只用纯文字，不用 Claude / Anthropic logo：没有公开授权的徽章，[商标规范](https://www.anthropic.com/legal/trademark-guidelines)要求 logo 使用须事先书面许可
 - 界面字号参考 iOS Dynamic Type 默认值，用 rem 表示：Large Title 34 / Title1 28 / Title2 22 / Title3 20 / Headline 17 semibold / Body 17 / Subhead 15 / Footnote 13 / Caption 12
@@ -130,12 +147,13 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 
 ## 数据模型（初稿）
 - `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`
-- `posts`：slug, title, content_md, excerpt, status (draft | published), published_at, search_vector
+- `posts`：slug, title, content_md, excerpt, status (draft | published), published_at, search_vector, source_locale（默认 zh）
+- `post_translations`：(post_id, locale) 主键，title, content_md, excerpt, source_hash, origin（machine | human）, model, translated_at, search_vector；locale 只有格式 CHECK（加语言不需要迁移）；`db:migrate` 同样补齐 search_vector 为 NULL 的译文
 - `tags` + `post_tags`
 - `commenters`（GitHub 用户，trust：default | trusted | blocked）、`commenter_sessions`、`oauth_states`
 - `comments`：post_id, commenter_id, root_id / parent_id（楼中楼）, body, status（pending | approved | rejected）
 - `post_views`
-- `images`：key, content_type, size, filename, width / height, variants, folder_id, description, confirmed_at（NULL 为待确认）；`media_folders`；`post_images`（由正文推导）
+- `images`：key, content_type, size, filename, width / height, variants, folder_id, description, confirmed_at（NULL 为待确认）；`media_folders`；`post_images`（由原文 + 所有译文的正文推导）
 
 ## 安全
 - 管理员登录：只用 Passkey（WebAuthn），没有密码；协议验证用 SimpleWebAuthn，其余自己实现
@@ -157,7 +175,8 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - [x] v4a 限流与阅读数（线上 Redis 用 Vercel Storage 里的 Upstash，API 项目设 `REDIS_URL`（rediss://）和 `CRON_SECRET`）
   - [x] v4b 全文搜索
   - [x] v4c 评论（API 项目设 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`）
-- [ ] v4.5 多语言框架（见"多语言"）：中英日，`/en` `/ja` 前缀、界面字典、hreflang、`<html lang>`、译文数据结构、后台手工编辑译文
+- [x] v4.5 多语言框架（见"多语言"）：中英日，`/en` `/ja` 前缀、界面字典、hreflang、`<html lang>`、译文数据结构、后台手工编辑译文（上线前：前端项目设 `SITE_URL`）
+  - 上线顺序（缓存标签改成按语言区分、前端的 schema 要求 API 返回 `locale` 等新字段，两个项目不能同时部署）：① Neon 执行迁移 0008（API 读 `posts.source_locale`，先部署 API 会全部报错）② 部署 API，确认 `GET /posts?locale=en` 的每项都带 `locale` ③ 再部署（或重新部署）前端——它构建时请求 API；如果前端的自动部署抢先跑了、预渲染时报 zod / bad response 错误，API 上线后重新部署即可。前后交替的一小时内旧前端的页面不会被新标签失效，靠一小时的定时刷新兜底
 - [ ] v5 工程化：Docker 镜像、GitHub Actions、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）
-- [ ] v5.5 自动翻译：发布后异步调用 Claude API 生成译文，结构校验，原文变更后重新生成
+- [ ] v5.5 自动翻译：文章编辑页手动点击"生成译文"调用 Claude API（发布时可一并生成），作者过目后保存；结构校验，原文变更后提示重新生成
 - [ ] v6 收款：**暂缓，方案待定**。Stripe 不可用：Stripe 日本不允许以个人名义接受捐赠。需要先确定收款场景（打赏 / 付费文章 / 订阅）和收款主体，再选服务；无论用哪家，支付本身交给托管支付页，订单状态、webhook 签名校验、幂等、对账自己实现

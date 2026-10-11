@@ -166,3 +166,42 @@ describe("buildSnippet", () => {
     expect(snippet.text.startsWith("… ")).toBe(false);
   });
 });
+
+describe("buildSnippet word boundaries", () => {
+  const sentence = "Comments stored here and view counts live in Redis while search uses Postgres tsvector indexes";
+  const clipped = (snippet: { text: string }) => snippet.text.replace(/^…|…$/g, "");
+
+  it("starts at the next whole word instead of mid-word", () => {
+    // context 落在 "counts" 中间
+    const at = sentence.indexOf("Redis");
+    const snippet = buildSnippet(sentence, findHighlights(sentence, "redis"), { length: 40, context: at - sentence.indexOf("counts") - 2 });
+    expect(clipped(snippet).startsWith("live in Redis")).toBe(true);
+    expect(snippet.highlights.map(({ start, end }) => snippet.text.slice(start, end))).toEqual(["Redis"]);
+  });
+
+  it("ends before a word that would be cut", () => {
+    // 前 23 个字素是 "Comments stored here an"：切在 "and" 中间，退回到 "here" 之后
+    const snippet = buildSnippet(sentence, [], { length: 23 });
+    expect(snippet.text).toBe("Comments stored here…");
+    expect(clipped(snippet).split(" ").every((word) => sentence.split(" ").includes(word))).toBe(true);
+  });
+
+  it("never moves the start past the first match", () => {
+    const text = "Supercalifragilistic redis";
+    const snippet = buildSnippet(text, findHighlights(text, "redis"), { length: 10, context: 3 });
+    expect(snippet.highlights.map(({ start, end }) => snippet.text.slice(start, end))).toEqual(["redis"]);
+  });
+
+  it("does not back the end off past the match when the match is the word being cut", () => {
+    // "redis" 前缀命中 "redisearch"，窗口结尾落在这个词中间：退到词首会把匹配整个丢掉，这时宁可切开单词
+    const text = "a b c redisearch";
+    const snippet = buildSnippet(text, findHighlights(text, "redis"), { length: 13, context: 20 });
+    expect(snippet.highlights.map(({ start, end }) => snippet.text.slice(start, end))).toEqual(["redis"]);
+  });
+
+  it("keeps cutting CJK text anywhere", () => {
+    const text = `${"前".repeat(50)}关键词${"后".repeat(50)}`;
+    const snippet = buildSnippet(text, findHighlights(text, "关键词"), { length: 20, context: 5 });
+    expect(snippet.text).toBe(`…${"前".repeat(5)}关键词${"后".repeat(12)}…`);
+  });
+});

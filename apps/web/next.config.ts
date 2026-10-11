@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { defaultLocaleRewrites } from "./lib/locale-routing";
 
 const apiUrl = process.env.API_URL ?? "http://localhost:8787";
 
@@ -14,9 +15,12 @@ const nextConfig: NextConfig = {
    *   跨站 cookie 会被拦截；代理后 session cookie 是第一方的，可以用 SameSite=Lax + __Host- 前缀；
    * - Passkey 的 RP ID 必须是前端的域名，整个登录流程都在前端源下完成。
    * 服务端渲染取数据（lib/api.ts）仍然直连 API_URL，不经过这层代理。
+   *
+   * 其后是多语言：默认语言（中文）的网址没有前缀，重写到 app/[lang] 下的 /zh/…（见 lib/locale-routing.ts）。
+   * 返回数组 = afterFiles：静态文件和静态路由（/admin/*、/hooks/*）先匹配，不会被重写。
    */
   async rewrites() {
-    return [{ source: "/api/:path*", destination: `${apiUrl}/:path*` }];
+    return [{ source: "/api/:path*", destination: `${apiUrl}/:path*` }, ...defaultLocaleRewrites()];
   },
 };
 

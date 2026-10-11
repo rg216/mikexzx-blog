@@ -17,11 +17,17 @@
   }
 }
 
+/*
+ * 一行放得下时（绝大多数情况）就是一行。读者把浏览器字号调得很大、屏幕又窄时（如 320px 宽 + 125% 字号），
+ * 链接和语言按钮换到第二行，而不是把页面撑出横向滚动条。换行后导航栏比 --nav-height 高，
+ * 锚点跳转的 scroll-padding-top 和不支持 anchor positioning 时菜单的位置会差一点，可以接受。
+ */
 .inner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: 0 var(--space-2);
   max-width: calc(var(--page-width) + var(--inset-left) + var(--inset-right));
   min-height: var(--nav-height);
   margin-inline: auto;
@@ -38,10 +44,18 @@
   text-decoration: none;
 }
 
+/* 导航链接 + 语言按钮 */
+.actions {
+  display: flex;
+  align-items: center;
+  /* 换到第二行时仍然靠右 */
+  margin-left: auto;
+  /* 链接和按钮自带内边距撑出 44px 点击区域，最右侧那个的内边距抵消掉，让图标和内容右边缘对齐 */
+  margin-right: calc(-1 * var(--space-1-5));
+}
+
 .links {
   display: flex;
-  /* 链接自带内边距撑出 44px 点击区域，最右侧那个的内边距抵消掉，让文字和内容右边缘对齐 */
-  margin-right: calc(-1 * var(--space-1-5));
   padding: 0;
   list-style: none;
 }

@@ -1,0 +1,197 @@
+import { type AdminTranslationSummary, translationInputSchema } from "@blog/shared";
+import { describe, expect, it } from "vitest";
+import {
+  buildTranslationInput,
+  canTranslateTo,
+  checkUntranslated,
+  formFromSource,
+  isTranslationDirty,
+  issuesToTranslationErrors,
+  localeShortLabel,
+  needsSave,
+  originLabel,
+  translationSaveHint,
+  translationState,
+  translationTargets,
+  untranslatedFields,
+  validateTranslationForm,
+} from "./translation-form";
+
+const hash = "0123456789abcdef".repeat(4);
+
+function summary(overrides: Partial<AdminTranslationSummary> = {}): AdminTranslationSummary {
+  return {
+    locale: "en",
+    title: "Hello",
+    origin: "human",
+    model: null,
+    translatedAt: "2026-10-02T00:00:00.000Z",
+    sourceHash: hash,
+    outdated: false,
+    ...overrides,
+  };
+}
+
+describe("translationState", () => {
+  it("distinguishes missing, synced and outdated", () => {
+    expect(translationState(null)).toBe("missing");
+    expect(translationState(summary())).toBe("synced");
+    expect(translationState(summary({ outdated: true }))).toBe("outdated");
+  });
+});
+
+describe("translationTargets", () => {
+  it("lists every locale except the source language, in locales order, with existing summaries attached", () => {
+    const ja = summary({ locale: "ja", title: "こんにちは", outdated: true });
+    const targets = translationTargets({ sourceLocale: "zh", translations: [ja] });
+    expect(targets.map((t) => t.locale)).toEqual(["en", "ja"]);
+    expect(targets[0]).toMatchObject({ locale: "en", name: "英语", summary: null, state: "missing" });
+    expect(targets[1]).toMatchObject({ locale: "ja", name: "日语", summary: ja, state: "outdated" });
+  });
+
+  it("follows the post's own source language instead of assuming Chinese", () => {
+    const zh = summary({ locale: "zh" });
+    const targets = translationTargets({ sourceLocale: "en", translations: [zh] });
+    expect(targets.map((t) => t.locale)).toEqual(["zh", "ja"]);
+    expect(targets[0]?.state).toBe("synced");
+  });
+});
+
+describe("canTranslateTo", () => {
+  it("rejects only the source language", () => {
+    expect(canTranslateTo({ sourceLocale: "zh" }, "zh")).toBe(false);
+    expect(canTranslateTo({ sourceLocale: "zh" }, "en")).toBe(true);
+    expect(canTranslateTo({ sourceLocale: "ja" }, "zh")).toBe(true);
+  });
+});
+
+describe("form values", () => {
+  it("copies the source title and body verbatim as a starting point", () => {
+    const content = "```ts\nconst a = 1;\n```\n\n![图](https://x/images/2026/10/abcdabcdabcdabcd.jpg#small)\n\n[链接](https://example.com)";
+    expect(formFromSource({ title: "标题", contentMd: content })).toEqual({ title: "标题", contentMd: content });
+  });
+
+  it("detects changes in either field", () => {
+    const base = { title: "A", contentMd: "B" };
+    expect(isTranslationDirty(base, { ...base })).toBe(false);
+    expect(isTranslationDirty(base, { ...base, title: "A2" })).toBe(true);
+    expect(isTranslationDirty(base, { ...base, contentMd: "B2" })).toBe(true);
+  });
+
+  it("builds a PUT body that passes the shared schema and carries the given source hash", () => {
+    const input = buildTranslationInput({ title: "Hello", contentMd: "Body" }, hash);
+    expect(input).toEqual({ title: "Hello", contentMd: "Body", sourceHash: hash });
+    expect(translationInputSchema.safeParse(input).success).toBe(true);
+  });
+});
+
+describe("needsSave", () => {
+  const other = "f".repeat(64);
+  it("always saves a new translation, even an unchanged copy", () => {
+    expect(needsSave(null, false, hash)).toBe(true);
+  });
+
+  it("saves edits", () => {
+    expect(needsSave({ sourceHash: hash }, true, hash)).toBe(true);
+  });
+
+  it("saves an unchanged translation to mark it synced with a newer source", () => {
+    expect(needsSave({ sourceHash: other }, false, hash)).toBe(true);
+  });
+
+  it("skips only when nothing changed and it is already based on the current source", () => {
+    expect(needsSave({ sourceHash: hash }, false, hash)).toBe(false);
+  });
+});
+
+describe("validateTranslationForm", () => {
+  it("accepts a title with an empty body (same rule as posts)", () => {
+    expect(validateTranslationForm({ title: "Hello", contentMd: "" }, hash)).toEqual({});
+  });
+
+  it("reports a blank title on the title field in Chinese", () => {
+    expect(validateTranslationForm({ title: "   ", contentMd: "x" }, hash)).toEqual({ title: "请填写标题" });
+  });
+
+  it("reports an over-long title", () => {
+    expect(validateTranslationForm({ title: "a".repeat(201), contentMd: "" }, hash).title).toBe("标题不能超过 200 个字符");
+  });
+
+  it("puts a broken source hash on the form, not on a field", () => {
+    const errors = validateTranslationForm({ title: "Hello", contentMd: "" }, "nope");
+    expect(errors).toEqual({ form: "无效的原文指纹" });
+  });
+});
+
+describe("issuesToTranslationErrors", () => {
+  it("maps known fields, keeps the first message per field and sends the rest to form", () => {
+    expect(
+      issuesToTranslationErrors([
+        { path: "title", message: "第一条" },
+        { path: "title", message: "第二条" },
+        { path: "contentMd", message: "太长" },
+        { path: "sourceHash", message: "无效的原文指纹" },
+        { path: "", message: "不能为原文语言添加译文" },
+      ]),
+    ).toEqual({ title: "第一条", contentMd: "太长", form: "无效的原文指纹" });
+  });
+});
+
+describe("labels", () => {
+  it("labels origins, with the model when known", () => {
+    expect(originLabel("human", null)).toBe("人工翻译");
+    expect(originLabel("machine", "claude-x")).toBe("机器翻译（claude-x）");
+    expect(originLabel("machine", null)).toBe("机器翻译");
+  });
+
+  it("uses upper-case language codes as short labels", () => {
+    expect(localeShortLabel("en")).toBe("EN");
+    expect(localeShortLabel("ja")).toBe("JA");
+  });
+
+  it("warns that saving takes effect immediately only for published posts", () => {
+    expect(translationSaveHint("published")).toContain("立即可见");
+    expect(translationSaveHint("draft")).not.toContain("立即可见");
+  });
+});
+
+describe("untranslated content", () => {
+  const source = { title: "缓存策略", contentMd: "## 小标题\n\n正文。" };
+
+  it("finds fields still identical to the source, ignoring surrounding whitespace", () => {
+    expect(untranslatedFields({ title: " 缓存策略 ", contentMd: "## 小标题\n\n正文。\n" }, source)).toEqual(["title", "contentMd"]);
+    expect(untranslatedFields({ title: "Caching", contentMd: source.contentMd }, source)).toEqual(["contentMd"]);
+    expect(untranslatedFields({ title: "缓存策略", contentMd: "## Heading\n\nBody." }, source)).toEqual(["title"]);
+    expect(untranslatedFields({ title: "Caching", contentMd: "## Heading\n\nBody." }, source)).toEqual([]);
+  });
+
+  it("does not count an empty source body as untranslated", () => {
+    expect(untranslatedFields({ title: "Caching", contentMd: "" }, { title: "缓存", contentMd: "" })).toEqual([]);
+  });
+
+  it("refuses to save a translation identical to the source", () => {
+    expect(checkUntranslated({ ...source }, source, null)).toEqual({ kind: "refuse" });
+    expect(checkUntranslated({ title: "缓存策略 ", contentMd: ` ${source.contentMd}` }, source, null)).toEqual({ kind: "refuse" });
+    // 原文只有标题：标题也没翻译，同样是原样照搬
+    expect(checkUntranslated({ title: "缓存", contentMd: "" }, { title: "缓存", contentMd: "" }, null)).toEqual({ kind: "refuse" });
+  });
+
+  it("asks for confirmation when only one field is still the source", () => {
+    expect(checkUntranslated({ title: "Caching", contentMd: source.contentMd }, source, null)).toEqual({ kind: "confirm", fields: ["contentMd"] });
+    expect(checkUntranslated({ title: "缓存策略", contentMd: "Body." }, source, null)).toEqual({ kind: "confirm", fields: ["title"] });
+  });
+
+  it("does not ask again about a field that was already saved identical to the source", () => {
+    const saved = { title: "缓存策略", contentMd: "Body." };
+    expect(checkUntranslated({ title: "缓存策略", contentMd: "Body, edited." }, source, saved)).toEqual({ kind: "ok" });
+    // 新变成和原文一样的字段仍要确认
+    expect(checkUntranslated({ title: "Caching", contentMd: source.contentMd }, source, { title: "Caching", contentMd: "Body." })).toEqual({
+      kind: "confirm",
+      fields: ["contentMd"],
+    });
+  });
+
+  it("passes a real translation", () => {
+    expect(checkUntranslated({ title: "Caching", contentMd: "Body." }, source, null)).toEqual({ kind: "ok" });
+  });
+});

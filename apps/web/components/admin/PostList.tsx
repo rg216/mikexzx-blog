@@ -1,7 +1,7 @@
 "use client";
 
 import type { AdminPost } from "@blog/shared";
-import { ExternalLink, FilePlus2, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, FilePlus2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Banner } from "@/components/ui/Banner";
@@ -9,7 +9,9 @@ import { Button, buttonClassName, ButtonLink } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Spinner } from "@/components/ui/Spinner";
 import { adminApi, AdminApiError } from "@/lib/admin-api";
-import { formatDateTime } from "@/lib/admin-format";
+import { adminLocaleName, formatDateTime } from "@/lib/admin-format";
+import { postPath } from "@/lib/i18n/paths";
+import { localeShortLabel } from "@/lib/translation-form";
 import styles from "./PostList.module.css";
 import { StatusBadge } from "./StatusBadge";
 
@@ -147,6 +149,26 @@ export function PostList() {
                     {post.title}
                   </Link>
                   <span className={styles.slug}>/{post.slug}</span>
+                  {post.translations.length > 0 && (
+                    // 已有译文的语言：EN / JA。过时的除了黄色底，还有图标和清楚的边框（不只靠颜色区分），读屏读出完整说明
+                    <span className={styles.translations}>
+                      <span className="visually-hidden">译文：</span>
+                      {post.translations.map((t) => (
+                        <span
+                          key={t.locale}
+                          className={t.outdated ? `${styles.locale} ${styles.localeOutdated}` : styles.locale}
+                          title={t.outdated ? `${adminLocaleName(t.locale)}译文：原文已更新` : undefined}
+                        >
+                          {t.outdated && <RefreshCw className={styles.localeIcon} aria-hidden="true" />}
+                          <span aria-hidden="true">{localeShortLabel(t.locale)}</span>
+                          <span className="visually-hidden">
+                            {adminLocaleName(t.locale)}
+                            {t.outdated ? "（原文已更新）" : ""}
+                          </span>
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </div>
                 <div className={styles.meta}>
                   <div className={styles.status}>
@@ -177,7 +199,7 @@ export function PostList() {
                 <div className={styles.actions}>
                   {post.status === "published" && (
                     <a
-                      href={`/posts/${post.slug}`}
+                      href={postPath(post.sourceLocale, post.slug)}
                       target="_blank"
                       rel="noopener"
                       className={buttonClassName({ variant: "plain", iconOnly: true })}

@@ -1,4 +1,4 @@
-import { adminImageDetailSchema, adminImageSchema, imageUploadSchema, mediaFolderSchema, postSchema } from "@blog/shared";
+import { adminImageDetailSchema, adminImageSchema, imageUploadSchema, mediaFolderSchema, postSchema, publicPostSchema } from "@blog/shared";
 import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -7,7 +7,7 @@ import { variantKey } from "../src/services/images.ts";
 import { PNG_37x23 } from "./fixtures.ts";
 import { CRON_SECRET, setupTestApp } from "./helpers.ts";
 
-const { db, request, storage, createPost } = setupTestApp({ withStorage: true });
+const { db, request, storage, createPost, translatePost } = setupTestApp({ withStorage: true });
 
 const put = (upload: { url: string; headers: Record<string, string> }, body: Uint8Array) =>
   fetch(upload.url, { method: "PUT", headers: upload.headers, body });
@@ -122,6 +122,37 @@ describe("references from posts", () => {
     await createPost({ slug: "a", status: "published", contentMd: `![](${image.url})` });
     const post = postSchema.parse((await request("GET", "/posts/a", { auth: false })).body);
     expect(post.images).toEqual({ [await keyOf(image.id)]: { width: 37, height: 23, variants: [640] } });
+  });
+});
+
+describe("references from translations", () => {
+  it("counts images used only by a translation, until the translation drops them", async () => {
+    const image = await upload();
+    const { id } = await createPost({ slug: "a", title: "原文没有图", status: "published", contentMd: "只有文字。" });
+    await translatePost(id, "en", { contentMd: `![](${image.url})` });
+    expect((await detail(image.id)).posts.map((p) => p.title)).toEqual(["原文没有图"]);
+
+    // 删除仍被译文引用的图片也要确认
+    expect((await request("POST", "/admin/images/delete", { body: { ids: [image.id] } })).status).toBe(409);
+    // 渲染译文时有宽高
+    const post = publicPostSchema.parse((await request("GET", "/posts/a?locale=en", { auth: false })).body);
+    expect(post.images).toEqual({ [await keyOf(image.id)]: { width: 37, height: 23, variants: [] } });
+
+    // 保存原文不会丢掉译文里的引用
+    await request("PATCH", `/admin/posts/${id}`, { body: { contentMd: "改过的文字。" } });
+    expect((await detail(image.id)).usage).toBe(1);
+
+    await translatePost(id, "en", { contentMd: "No image any more." });
+    expect((await detail(image.id)).usage).toBe(0);
+  });
+
+  it("drops the references when the translation is deleted", async () => {
+    const image = await upload();
+    const { id } = await createPost({ slug: "a" });
+    await translatePost(id, "ja", { contentMd: `![](${image.url})` });
+    expect((await detail(image.id)).usage).toBe(1);
+    await request("DELETE", `/admin/posts/${id}/translations/ja`);
+    expect((await detail(image.id)).usage).toBe(0);
   });
 });
 

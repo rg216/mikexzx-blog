@@ -9,14 +9,21 @@ import {
   publicCommentSchema,
 } from "@blog/shared";
 import type { z } from "zod";
+import { type ApiErrorReason, reasonFromStatus } from "./api-error-reason";
+import { browserPath } from "./i18n/paths";
 
-/** 评论接口的错误，message 可以直接展示给读者 */
+/**
+ * 评论接口的错误。reason 由组件按字典翻译成当前语言的文字；message 只用于日志和调试——
+ * API 的 message 是中文的，英文、日文页面上不直接显示它。
+ */
 export class CommentApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string, options?: ErrorOptions) {
-    super(message, options);
+  readonly reason: ApiErrorReason;
+  constructor(status: number, reason: ApiErrorReason = reasonFromStatus(status), options?: ErrorOptions) {
+    super(`comments API failed: ${reason} (${status})`, options);
     this.name = "CommentApiError";
     this.status = status;
+    this.reason = reason;
   }
 }
 
@@ -30,16 +37,16 @@ export function createCommentsApi(fetchImpl: typeof fetch = (...args) => fetch(.
     try {
       res = await fetchImpl(`/api${path}`, { credentials: "same-origin", ...init, headers: { accept: "application/json", ...init.headers } });
     } catch (error) {
-      throw new CommentApiError(0, "无法连接服务器，请检查网络后重试", { cause: error });
+      throw new CommentApiError(0, "network", { cause: error });
     }
     const body: unknown = res.status === 204 ? null : await res.json().catch(() => undefined);
     if (!res.ok) {
-      const parsed = apiErrorSchema.safeParse(body);
-      if (res.status === 429) throw new CommentApiError(429, "评论太频繁，请过几分钟再试");
-      throw new CommentApiError(res.status, parsed.success ? parsed.data.error.message : "服务暂时不可用，请稍后重试");
+      // 错误码以 HTTP 状态为准；网关的 HTML 错误页之类不符合 apiErrorSchema 的响应一律算服务端问题
+      const reason = res.status >= 500 || !apiErrorSchema.safeParse(body).success ? "unavailable" : reasonFromStatus(res.status);
+      throw new CommentApiError(res.status, res.status === 429 ? "rate_limited" : reason);
     }
     const parsed = schema.safeParse(body);
-    if (!parsed.success) throw new CommentApiError(res.status, "服务器返回的数据格式不正确", { cause: parsed.error });
+    if (!parsed.success) throw new CommentApiError(res.status, "unavailable", { cause: parsed.error });
     return parsed.data;
   }
 
@@ -63,29 +70,32 @@ export function createCommentsApi(fetchImpl: typeof fetch = (...args) => fetch(.
       try {
         res = await fetchImpl(`/api/comments/${id}`, { method: "DELETE", credentials: "same-origin" });
       } catch (error) {
-        throw new CommentApiError(0, "无法连接服务器，请检查网络后重试", { cause: error });
+        throw new CommentApiError(0, "network", { cause: error });
       }
       // 已经不存在了（比如在另一个标签页删过）：结果和成功一样
-      if (!res.ok && res.status !== 404) throw new CommentApiError(res.status, "删除失败，请稍后重试");
+      if (!res.ok && res.status !== 404) throw new CommentApiError(res.status);
     },
     async logout(): Promise<void> {
       const res = await fetchImpl("/api/auth/github/logout", { method: "POST", credentials: "same-origin" }).catch(() => null);
-      if (!res?.ok) throw new CommentApiError(res?.status ?? 0, "退出失败，请稍后重试");
+      if (!res?.ok) throw new CommentApiError(res?.status ?? 0);
     },
   };
 }
 
 export const commentsApi = createCommentsApi();
 
-/** GitHub 登录入口：整页跳转（OAuth 要离开本站去 GitHub），登录后回到当前文章的评论区 */
+/**
+ * GitHub 登录入口：整页跳转（OAuth 要离开本站去 GitHub），登录后回到当前文章的评论区。
+ * pathname 来自 usePathname()：服务端渲染时可能是 rewrite 后的路由路径（/zh/posts/a），
+ * 统一成浏览器网址（/posts/a），否则登录回来会落到 /zh/… 的 404。
+ */
 export function githubLoginHref(pathname: string): string {
-  return `/api/auth/github/start?${new URLSearchParams({ next: `${pathname}#comments` })}`;
+  return `/api/auth/github/start?${new URLSearchParams({ next: `${browserPath(pathname)}#comments` })}`;
 }
 
-/** 登录回跳时 API 加在地址上的 ?login=…，翻译成提示；没有返回 null */
-export function loginResultMessage(value: string | null): string | null {
-  if (value === "cancelled") return "你取消了 GitHub 授权，没有登录。";
-  if (value === "failed") return "GitHub 登录没有成功，请重试。";
-  if (value === "unavailable") return "评论登录暂未开放。";
-  return null;
+export type LoginResult = "cancelled" | "failed" | "unavailable";
+
+/** 登录回跳时 API 加在地址上的 ?login=…；不认识的值返回 null。文字由组件按字典显示 */
+export function parseLoginResult(value: string | null): LoginResult | null {
+  return value === "cancelled" || value === "failed" || value === "unavailable" ? value : null;
 }

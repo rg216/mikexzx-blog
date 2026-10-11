@@ -1,10 +1,20 @@
-import { apiErrorSchema, type SearchHit, searchResultSchema } from "@blog/shared";
+import { type Locale, type SearchHit, searchQuerySchema, searchResultSchema } from "@blog/shared";
+import { type ApiErrorReason, reasonFromStatus } from "./api-error-reason";
+import type { Dictionary } from "./i18n";
 
-/** 搜索失败的原因，已经是可以直接展示给读者的文字 */
+/** 搜索词的长度上限，取自共享的 searchQuerySchema（界面提示"不能超过 N 个字符"用） */
+export const SEARCH_QUERY_MAX_LENGTH = searchQuerySchema.shape.q.maxLength ?? 100;
+
+/**
+ * 搜索失败。reason 由组件按字典翻译成当前语言的文字；message 只用于日志和调试。
+ * 不显示 API 的 message：它是中文的，英文、日文页面上不该出现。
+ */
 export class SearchError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
+  readonly reason: ApiErrorReason;
+  constructor(reason: ApiErrorReason, options?: ErrorOptions) {
+    super(`search failed: ${reason}`, options);
     this.name = "SearchError";
+    this.reason = reason;
   }
 }
 
@@ -12,26 +22,40 @@ export class SearchError extends Error {
  * 在浏览器里调用搜索接口（经 /api 代理）。
  * 为什么不在服务端渲染搜索结果：服务端请求 API 时，API 看到的是 Vercel 函数的 IP，所有读者会共用一个限流额度；
  * 而且搜索页本身可以是静态页面，不必每次访问都运行函数。
+ * locale：搜哪种语言的版本（每种语言分别建索引）。
  * 请求被 signal 取消时抛出原生的 AbortError，调用方据此忽略过期的请求。
  */
-export async function searchPosts(query: string, { signal, fetch: fetchImpl = fetch }: { signal?: AbortSignal; fetch?: typeof fetch } = {}): Promise<SearchHit[]> {
+export async function searchPosts(
+  query: string,
+  { locale, signal, fetch: fetchImpl = fetch }: { locale: Locale; signal?: AbortSignal; fetch?: typeof fetch },
+): Promise<SearchHit[]> {
   let res: Response;
   try {
-    res = await fetchImpl(`/api/search?${new URLSearchParams({ q: query })}`, { signal, headers: { accept: "application/json" } });
+    res = await fetchImpl(`/api/search?${new URLSearchParams({ q: query, locale })}`, { signal, headers: { accept: "application/json" } });
   } catch (error) {
     if (signal?.aborted) throw error;
-    throw new SearchError("无法连接服务器，请检查网络后重试", { cause: error });
+    throw new SearchError("network", { cause: error });
   }
 
   const body: unknown = await res.json().catch(() => undefined);
-  if (!res.ok) {
-    if (res.status === 429) throw new SearchError("搜索太频繁，请稍等片刻再试");
-    const parsed = apiErrorSchema.safeParse(body);
-    // 400 的消息来自 searchQuerySchema（"搜索内容不能超过 100 个字符"），可以直接展示
-    throw new SearchError(res.status === 400 && parsed.success ? parsed.data.error.message : "搜索暂时不可用，请稍后重试");
-  }
+  if (!res.ok) throw new SearchError(reasonFromStatus(res.status));
 
   const parsed = searchResultSchema.safeParse(body);
-  if (!parsed.success) throw new SearchError("搜索暂时不可用，请稍后重试", { cause: parsed.error });
+  if (!parsed.success) throw new SearchError("unavailable", { cause: parsed.error });
   return parsed.data.items;
+}
+
+/** 失败原因 → 当前语言的文字（不显示 API 返回的中文 message） */
+export function searchErrorText(t: Dictionary["search"]["errors"], reason: ApiErrorReason): string {
+  switch (reason) {
+    case "network":
+      return t.network;
+    case "rate_limited":
+      return t.rateLimited;
+    // 前端只会发非空、不超长（输入框有 maxLength）的查询词，400 基本只可能是超长
+    case "invalid":
+      return t.tooLong(SEARCH_QUERY_MAX_LENGTH);
+    default:
+      return t.unavailable;
+  }
 }

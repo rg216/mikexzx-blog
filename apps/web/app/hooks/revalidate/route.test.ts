@@ -23,11 +23,11 @@ afterEach(() => {
 
 describe("POST /hooks/revalidate", () => {
   it("expires each tag immediately", async () => {
-    const res = await call({ tags: ["posts", "post:a"] }, `Bearer ${SECRET}`);
+    const res = await call({ tags: ["posts:zh", "post:a:en"] }, `Bearer ${SECRET}`);
     expect(res.status).toBe(200);
     expect(revalidateTag.mock.calls).toEqual([
-      ["posts", { expire: 0 }],
-      ["post:a", { expire: 0 }],
+      ["posts:zh", { expire: 0 }],
+      ["post:a:en", { expire: 0 }],
     ]);
   });
 
@@ -36,17 +36,17 @@ describe("POST /hooks/revalidate", () => {
     ["a wrong secret", "Bearer nope"],
     ["the wrong scheme", `Basic ${SECRET}`],
   ])("rejects %s", async (_name, authorization) => {
-    expect((await call({ tags: ["posts"] }, authorization)).status).toBe(401);
+    expect((await call({ tags: ["posts:zh"] }, authorization)).status).toBe(401);
     expect(revalidateTag).not.toHaveBeenCalled();
   });
 
-  it.each([["{not json"], [{ tags: [] }], [{ tag: "posts" }]])("rejects a malformed body %j", async (body) => {
+  it.each([["{not json"], [{ tags: [] }], [{ tag: "posts:zh" }], [{ tags: Array.from({ length: 51 }, (_, i) => `post:p${i}:zh`) }]])("rejects a malformed body %j", async (body) => {
     expect((await call(body, `Bearer ${SECRET}`)).status).toBe(400);
     expect(revalidateTag).not.toHaveBeenCalled();
   });
 
   it("refuses to work when no secret is configured", async () => {
     vi.stubEnv("REVALIDATE_SECRET", "");
-    expect((await call({ tags: ["posts"] }, "Bearer ")).status).toBe(503);
+    expect((await call({ tags: ["posts:zh"] }, "Bearer ")).status).toBe(503);
   });
 });

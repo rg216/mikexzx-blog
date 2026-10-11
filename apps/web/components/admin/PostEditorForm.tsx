@@ -1,7 +1,7 @@
 "use client";
 
 import type { AdminPost, PostStatus } from "@blog/shared";
-import { ChevronLeft, ExternalLink, ImagePlus } from "lucide-react";
+import { ChevronLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { Banner } from "@/components/ui/Banner";
@@ -11,8 +11,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { TextArea, TextField } from "@/components/ui/TextField";
 import { adminApi, AdminApiError } from "@/lib/admin-api";
 import { formatDateTime, formatTime } from "@/lib/admin-format";
-import { uploadImage } from "@/lib/image-upload";
-import { imageMarkdown, insertBlock, replacePlaceholder, uploadPlaceholder } from "@/lib/markdown-edit";
+import { postPath } from "@/lib/i18n/paths";
 import {
   buildCreateInput,
   buildUpdateInput,
@@ -28,11 +27,14 @@ import {
   suggestSlug,
   validatePostForm,
 } from "@/lib/post-form";
+import { MarkdownImageTools } from "./MarkdownImageTools";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { MediaPicker } from "./media/MediaPicker";
 import styles from "./PostEditorForm.module.css";
+import { PostTranslations } from "./PostTranslations";
 import { StatusBadge } from "./StatusBadge";
 import { TagEditor } from "./TagEditor";
+import { useMarkdownImages } from "./useMarkdownImages";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard";
 
 type SaveState =
@@ -65,13 +67,7 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
   const slugRef = useRef<HTMLInputElement>(null);
   const tagRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const previewHeadingId = useId();
-  /** 正在上传的图片数；ref 是给 save() 同步判断用的（理由同 savingRef） */
-  const [uploading, setUploading] = useState(0);
-  const uploadingRef = useRef(0);
-  const uploadSeq = useRef(0);
-  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const baseline = saved ? formFromPost(saved) : emptyPostForm;
   const dirty = isFormDirty(baseline, values);
@@ -85,6 +81,16 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
     // 用户开始改这个字段了，旧的错误提示不再准确
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: undefined }));
   }
+
+  const images = useMarkdownImages({
+    textareaRef: contentRef,
+    value: values.contentMd,
+    onChange: (value) => setField("contentMd", value),
+    onUpdate: (update) => setValues((prev) => ({ ...prev, contentMd: update(prev.contentMd) })),
+    onBeforeInsert: () => {
+      if (view === "preview") setView("edit");
+    },
+  });
 
   function focusFirstError(nextErrors: PostFormErrors) {
     const field = fieldOrder.find((f) => nextErrors[f]);
@@ -104,7 +110,7 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
   async function save(target: PostStatus) {
     if (savingRef.current) return;
     // 上传中的图片在正文里还是占位符，这时保存会把占位符存进文章
-    if (uploadingRef.current > 0) {
+    if (images.isUploading()) {
       setSaveState({ kind: "error", title: "图片还在上传", message: "请等上传完成后再保存。" });
       return;
     }
@@ -162,72 +168,6 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
     } finally {
       savingRef.current = false;
     }
-  }
-
-  /** 基于最新的正文修改（上传是异步的，期间作者可能继续打字，不能用发起上传时的旧正文） */
-  function updateContent(update: (content: string) => string) {
-    setValues((prev) => ({ ...prev, contentMd: update(prev.contentMd) }));
-  }
-
-  /**
-   * 插入图片：先在光标处为每张图插入占位符，再逐张上传，完成一张替换一张。
-   * 逐张而不是并发：顺序和选择的顺序一致，也不会同时占满带宽。
-   */
-  async function insertImages(files: File[]) {
-    if (files.length === 0) return;
-    setUploadError(null);
-    const textarea = contentRef.current;
-    const placeholders = files.map((file) => uploadPlaceholder(String(++uploadSeq.current), file.name));
-    const { value, cursor } = insertBlock(
-      values.contentMd,
-      textarea?.selectionStart ?? values.contentMd.length,
-      textarea?.selectionEnd ?? values.contentMd.length,
-      placeholders.join("\n\n"),
-    );
-    setField("contentMd", value);
-    if (view === "preview") setView("edit");
-    requestAnimationFrame(() => {
-      textarea?.focus();
-      textarea?.setSelectionRange(cursor, cursor);
-    });
-
-    uploadingRef.current += files.length;
-    setUploading(uploadingRef.current);
-    for (const [i, file] of files.entries()) {
-      const placeholder = placeholders[i] ?? "";
-      try {
-        const image = await uploadImage(file);
-        updateContent((content) => replacePlaceholder(content, placeholder, imageMarkdown(image.url)));
-      } catch (error) {
-        updateContent((content) => replacePlaceholder(content, placeholder, ""));
-        setUploadError(`${file.name || "图片"}：${error instanceof Error ? error.message : "上传失败"}`);
-      } finally {
-        uploadingRef.current -= 1;
-        setUploading(uploadingRef.current);
-      }
-    }
-  }
-
-  /** 从媒体选择器插入：在光标处插入一段（前后补空行，渲染成 figure） */
-  function insertFromPicker(markdown: string) {
-    const textarea = contentRef.current;
-    const { value, cursor } = insertBlock(
-      values.contentMd,
-      textarea?.selectionStart ?? values.contentMd.length,
-      textarea?.selectionEnd ?? values.contentMd.length,
-      markdown,
-    );
-    setField("contentMd", value);
-    if (view === "preview") setView("edit");
-    requestAnimationFrame(() => {
-      textarea?.focus();
-      textarea?.setSelectionRange(cursor, cursor);
-    });
-  }
-
-  /** 粘贴板、拖放里的图片文件（其他文件忽略，交给浏览器默认处理） */
-  function imageFiles(list: FileList | null): File[] {
-    return [...(list ?? [])].filter((file) => file.type.startsWith("image/"));
   }
 
   // ⌘S / Ctrl+S：保存（保持当前状态：草稿存草稿，已发布的直接更新）
@@ -329,7 +269,7 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
               </span>
             )}
             {saved?.status === "published" && (
-              <a href={`/posts/${saved.slug}`} target="_blank" rel="noopener" className={styles.viewLink}>
+              <a href={postPath(saved.sourceLocale, saved.slug)} target="_blank" rel="noopener" className={styles.viewLink}>
                 查看文章
                 <ExternalLink className={styles.viewIcon} aria-hidden="true" />
                 <span className="visually-hidden">（在新标签页打开）</span>
@@ -398,6 +338,9 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
           <div className={styles.tagsField}>
             <TagEditor tags={values.tags} onChange={(tags) => setField("tags", tags)} error={errors.tags} inputRef={tagRef} />
           </div>
+
+          {/* 译文挂在文章 id 上，新建的文章保存之后才有入口 */}
+          {saved && <PostTranslations post={saved} sourceDirty={dirty} className={styles.translationsField} />}
         </div>
 
         {/* 窄屏：编辑和预览二选一；宽屏左右分栏，切换控件隐藏 */}
@@ -415,50 +358,22 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
               className={styles.contentField}
               inputClassName={styles.contentInput}
               maxLength={200_000}
-              onPaste={(event) => {
-                const files = imageFiles(event.clipboardData.files);
-                if (files.length === 0) return;
-                event.preventDefault();
-                void insertImages(files);
-              }}
-              onDragOver={(event) => {
-                // 拖着文件经过时允许放下（默认行为是浏览器打开这个文件）
-                if (event.dataTransfer.types.includes("Files")) event.preventDefault();
-              }}
-              onDrop={(event) => {
-                const files = imageFiles(event.dataTransfer.files);
-                if (files.length === 0) return;
-                event.preventDefault();
-                void insertImages(files);
-              }}
+              {...images.textareaHandlers}
             />
-            <div className={styles.contentTools}>
-              <Button variant="plain" onClick={() => setPickerOpen(true)}>
-                <ImagePlus className={styles.toolIcon} aria-hidden="true" />
-                插入图片
-              </Button>
-              <p role="status" className={styles.uploadStatus}>
-                {uploading > 0 ? `正在上传 ${uploading} 张图片…` : "也可以直接粘贴或拖入图片"}
-              </p>
-            </div>
-            {uploadError && (
-              <Banner title="图片上传失败" className={styles.uploadBanner}>
-                {uploadError}
-              </Banner>
-            )}
+            <MarkdownImageTools images={images} />
           </div>
           <section className={`${styles.pane} ${styles.previewPane}`} aria-labelledby={previewHeadingId}>
             <h2 id={previewHeadingId} className={styles.paneTitle}>
               预览
             </h2>
             <div className={styles.previewBody}>
-              <MarkdownPreview markdown={values.contentMd} />
+              <MarkdownPreview markdown={values.contentMd} locale={saved?.sourceLocale} />
             </div>
           </section>
         </div>
       </form>
 
-      <MediaPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onInsert={insertFromPicker} />
+      <MediaPicker open={images.pickerOpen} onClose={images.closePicker} onInsert={images.insertMarkdown} />
 
       <ConfirmDialog
         open={guard.pendingHref !== null}

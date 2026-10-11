@@ -1,4 +1,4 @@
-import type { AdminPost } from "@blog/shared";
+import type { AdminPost, AdminTranslation } from "@blog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { AdminApiError, createAdminApi, toAdminApiError } from "./admin-api";
 
@@ -12,8 +12,24 @@ const post: AdminPost = {
   publishedAt: null,
   tags: [],
   images: {},
+  locale: "zh",
   createdAt: "2026-10-01T00:00:00.000Z",
   updatedAt: "2026-10-01T00:00:00.000Z",
+  sourceLocale: "zh",
+  sourceHash: "a".repeat(64),
+  translations: [],
+};
+
+const translation: AdminTranslation = {
+  locale: "en",
+  title: "Hello",
+  contentMd: "Body",
+  excerpt: "Body",
+  origin: "human",
+  model: null,
+  translatedAt: "2026-10-02T00:00:00.000Z",
+  sourceHash: "a".repeat(64),
+  outdated: false,
 };
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -110,5 +126,56 @@ describe("createAdminApi", () => {
     const error = await catchError(api.listPosts());
     expect(error).toMatchObject({ status: 0, code: "network_error" });
     expect(error.cause).toBeInstanceOf(TypeError);
+  });
+});
+
+describe("translations", () => {
+  it("GETs a translation by post id and locale", async () => {
+    const { api, fetch } = setup(jsonResponse(200, translation));
+    await expect(api.getTranslation(1, "en")).resolves.toEqual(translation);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(url).toBe("/api/admin/posts/1/translations/en");
+    expect(init?.method).toBe("GET");
+  });
+
+  it("PUTs the whole translation with the source hash it was based on", async () => {
+    const { api, fetch } = setup(jsonResponse(200, translation));
+    const input = { title: "Hello", contentMd: "Body", sourceHash: "a".repeat(64) };
+    await api.saveTranslation(1, "ja", input);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(url).toBe("/api/admin/posts/1/translations/ja");
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual(input);
+  });
+
+  // API 的 PUT：新建返回 201，替换已有的返回 200——两种都是成功
+  it.each([201, 200])("accepts %i from PUT and returns the saved translation", async (status) => {
+    const { api } = setup(jsonResponse(status, translation));
+    await expect(api.saveTranslation(1, "en", { title: "a", contentMd: "", sourceHash: "a".repeat(64) })).resolves.toEqual(translation);
+  });
+
+  it("validates translation responses (unknown locale, missing outdated)", async () => {
+    const bad = setup(jsonResponse(200, { ...translation, locale: "fr" }));
+    expect((await catchError(bad.api.getTranslation(1, "en"))).code).toBe("bad_response");
+    const withoutOutdated: Partial<AdminTranslation> = { ...translation };
+    delete withoutOutdated.outdated;
+    const missing = setup(jsonResponse(200, withoutOutdated));
+    expect((await catchError(missing.api.saveTranslation(1, "en", { title: "a", contentMd: "", sourceHash: "a".repeat(64) }))).code).toBe(
+      "bad_response",
+    );
+  });
+
+  it("DELETEs a translation and resolves on 204", async () => {
+    const { api, fetch } = setup(new Response(null, { status: 204 }));
+    await expect(api.deleteTranslation(1, "en")).resolves.toBeUndefined();
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(url).toBe("/api/admin/posts/1/translations/en");
+    expect(init?.method).toBe("DELETE");
+  });
+
+  it("surfaces a 400 for the source locale as a validation error", async () => {
+    const { api } = setup(jsonResponse(400, { error: { code: "validation_error", message: "不能为原文语言添加译文" } }));
+    const error = await catchError(api.saveTranslation(1, "en", { title: "a", contentMd: "", sourceHash: "a".repeat(64) }));
+    expect(error).toMatchObject({ status: 400, code: "validation_error", message: "不能为原文语言添加译文" });
   });
 });

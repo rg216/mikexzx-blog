@@ -8,13 +8,15 @@ import { Banner } from "@/components/ui/Banner";
 import { Spinner } from "@/components/ui/Spinner";
 import { TextField } from "@/components/ui/TextField";
 import { splitHighlights } from "@/lib/highlight";
-import { SearchError, searchPosts } from "@/lib/search";
+import { useDictionary, useLocale } from "@/lib/i18n/client";
+import { localePath } from "@/lib/i18n/paths";
+import { SEARCH_QUERY_MAX_LENGTH, SearchError, searchErrorText, searchPosts } from "@/lib/search";
 import styles from "./SearchView.module.css";
 
 /** 停止输入多久之后才发请求：太短每个字都发一次，太长显得迟钝 */
 const DEBOUNCE_MS = 250;
 
-type Result = { query: string; items: SearchHit[] } | { query: string; error: string };
+type Result = { query: string; items: SearchHit[] } | { query: string; error: SearchError["reason"] };
 
 function Highlighted({ value }: { value: HighlightedText }) {
   return splitHighlights(value).map((part, i) => (
@@ -24,16 +26,18 @@ function Highlighted({ value }: { value: HighlightedText }) {
 
 /** 搜索框。SearchView 加载前（Suspense fallback）也渲染同样的输入框，页面不会跳动 */
 export function SearchField(props: Omit<ComponentProps<typeof TextField>, "label">) {
+  const t = useDictionary().search;
   return (
     <form role="search" className={styles.form} onSubmit={(event) => event.preventDefault()}>
       <TextField
         type="search"
-        label="搜索文章"
+        label={t.fieldLabel}
         hideLabel
-        placeholder="搜索文章"
-        hint="匹配标题、正文和标签"
+        placeholder={t.placeholder}
+        hint={t.hint}
         enterKeyHint="search"
         autoComplete="off"
+        maxLength={SEARCH_QUERY_MAX_LENGTH}
         {...props}
       />
     </form>
@@ -45,6 +49,8 @@ export function SearchField(props: Omit<ComponentProps<typeof TextField>, "label
  * 查询词同步到地址栏（?q=），刷新、分享链接、从文章页返回都能回到同一个搜索。
  */
 export function SearchView() {
+  const locale = useLocale();
+  const t = useDictionary().search;
   // 地址栏里的 q 只用作输入框的初始值，之后以输入框为准
   const initialQuery = useSearchParams().get("q") ?? "";
   const [input, setInput] = useState(initialQuery);
@@ -55,7 +61,8 @@ export function SearchView() {
 
   useEffect(() => {
     // replaceState 而不是 pushState：不为每个字留一条历史记录。Next 会把它同步到 useSearchParams
-    window.history.replaceState(null, "", query ? `/search?${new URLSearchParams({ q: query })}` : "/search");
+    const path = localePath(locale, "/search");
+    window.history.replaceState(null, "", query ? `${path}?${new URLSearchParams({ q: query })}` : path);
 
     // 带着 ?q= 打开页面时立即搜索，之后的输入才防抖
     const immediate = firstRun.current;
@@ -65,11 +72,11 @@ export function SearchView() {
     const controller = new AbortController();
     const timer = setTimeout(
       () => {
-        searchPosts(query, { signal: controller.signal })
+        searchPosts(query, { locale, signal: controller.signal })
           .then((items) => setResult({ query, items }))
           .catch((error: unknown) => {
             if (controller.signal.aborted) return;
-            setResult({ query, error: error instanceof SearchError ? error.message : "搜索暂时不可用，请稍后重试" });
+            setResult({ query, error: error instanceof SearchError ? error.reason : "unavailable" });
           });
       },
       immediate ? 0 : DEBOUNCE_MS,
@@ -78,12 +85,12 @@ export function SearchView() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query]);
+  }, [query, locale]);
 
   const pending = query !== "" && result?.query !== query;
   // 等新结果时先保留上一次的结果（变淡），列表不会一闪而空
   const shown = query ? result : null;
-  const status = shown && !pending && "items" in shown ? (shown.items.length > 0 ? `找到 ${shown.items.length} 篇文章` : `没有找到与“${query}”相关的文章`) : "";
+  const status = shown && !pending && "items" in shown ? (shown.items.length > 0 ? t.found(shown.items.length) : t.nothingFound(query)) : "";
 
   return (
     <>
@@ -107,7 +114,7 @@ export function SearchView() {
         {pending && <Spinner className={styles.spinner} />}
       </div>
 
-      {shown && "error" in shown && <Banner title="搜索失败">{shown.error}</Banner>}
+      {shown && "error" in shown && <Banner title={t.errorTitle}>{searchErrorText(t.errors, shown.error)}</Banner>}
 
       {shown && "items" in shown && shown.items.length > 0 && (
         <ol className={styles.list} aria-busy={pending} data-stale={pending || undefined}>
@@ -119,6 +126,7 @@ export function SearchView() {
                 excerpt={<Highlighted value={hit.snippet} />}
                 publishedAt={hit.publishedAt}
                 tags={hit.tags}
+                locale={locale}
               />
             </li>
           ))}

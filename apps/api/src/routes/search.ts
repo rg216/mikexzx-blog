@@ -12,8 +12,8 @@ export function searchRoutes(db: Db, limiter: RateLimiter) {
     rateLimit(limiter, rules.search, (c) => clientIp(c)),
     validate("query", searchQuerySchema),
     async (c) => {
-      const { q } = c.req.valid("query");
-      return c.json({ items: await searchPosts(db, q) } satisfies SearchResult);
+      const { q, locale } = c.req.valid("query");
+      return c.json({ items: await searchPosts(db, q, locale) } satisfies SearchResult);
     },
   );
 }

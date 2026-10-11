@@ -8,8 +8,10 @@ import { Banner } from "@/components/ui/Banner";
 import { Button, buttonClassName } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Spinner } from "@/components/ui/Spinner";
-import { CommentApiError, commentsApi, githubLoginHref, loginResultMessage } from "@/lib/comments-api";
+import { CommentApiError, commentsApi, githubLoginHref, parseLoginResult } from "@/lib/comments-api";
 import { formatDate } from "@/lib/format";
+import { useDictionary, useLocale } from "@/lib/i18n/client";
+import { commentErrorText } from "./comment-errors";
 import styles from "./Comments.module.css";
 import { CommentForm } from "./CommentForm";
 
@@ -39,13 +41,15 @@ type ItemProps = {
 
 function CommentItem({ comment, render, me, editing, onReply, onEdit, onEditDone, onCancelEdit, onDelete }: ItemProps) {
   const { author } = comment;
+  const locale = useLocale();
+  const t = useDictionary().comments;
 
   // 作者自己删除了、但下面还有回复的楼主：只留一个占位
   if (!author) {
     return (
       <article className={styles.comment}>
         <span className={styles.avatar} aria-hidden="true" />
-        <p className={`${styles.main} ${styles.deleted}`}>此评论已被作者删除。</p>
+        <p className={`${styles.main} ${styles.deleted}`}>{t.deletedPlaceholder}</p>
       </article>
     );
   }
@@ -61,19 +65,17 @@ function CommentItem({ comment, render, me, editing, onReply, onEdit, onEditDone
           <a className={styles.author} href={`https://github.com/${author.login}`} rel="nofollow ugc noopener noreferrer">
             {author.name ?? author.login}
           </a>
-          {comment.replyTo && <span>回复 @{comment.replyTo.login}</span>}
-          <time dateTime={comment.createdAt}>{formatDate(comment.createdAt)}</time>
-          {comment.editedAt && (
-            <span title={`编辑于 ${formatDate(comment.editedAt)}`}>已编辑</span>
-          )}
-          {comment.status === "pending" && <Badge>审核中，仅你可见</Badge>}
+          {comment.replyTo && <span>{t.replyingTo(comment.replyTo.login)}</span>}
+          <time dateTime={comment.createdAt}>{formatDate(comment.createdAt, locale)}</time>
+          {comment.editedAt && <span title={t.editedAt(formatDate(comment.editedAt, locale))}>{t.edited}</span>}
+          {comment.status === "pending" && <Badge>{t.pending}</Badge>}
         </header>
 
         {editing && me ? (
           <CommentForm
             me={me}
-            label="编辑评论"
-            submitLabel="保存"
+            label={t.form.editLabel}
+            submitLabel={t.form.editSubmit}
             initialBody={comment.bodyMd}
             autoFocus
             submit={(body) => commentsApi.edit(comment.id, body)}
@@ -92,17 +94,17 @@ function CommentItem({ comment, render, me, editing, onReply, onEdit, onEditDone
               <div className={styles.itemActions}>
                 {onReply && (
                   <Button variant="plain" className={styles.itemButton} onClick={onReply}>
-                    回复
+                    {t.actions.reply}
                   </Button>
                 )}
                 {editable && (
                   <Button variant="plain" className={styles.itemButton} onClick={onEdit}>
-                    编辑
+                    {t.actions.edit}
                   </Button>
                 )}
                 {comment.mine && (
                   <Button variant="plain" className={styles.itemButton} onClick={onDelete}>
-                    删除
+                    {t.actions.delete}
                   </Button>
                 )}
               </div>
@@ -120,6 +122,8 @@ function CommentItem({ comment, render, me, editing, onReply, onEdit, onEditDone
  */
 export function Comments({ slug }: { slug: string }) {
   const pathname = usePathname();
+  const t = useDictionary().comments;
+  const { loginResults, errors } = t;
   const sectionRef = useRef<HTMLElement>(null);
   const [visible, setVisible] = useState(false);
   const [data, setData] = useState<Data | null>(null);
@@ -166,21 +170,22 @@ export function Comments({ slug }: { slug: string }) {
         setLoadError(null);
         // 从 GitHub 登录回来时，API 在地址上加了 ?login=…：显示结果，然后从地址栏去掉，刷新时不再提示
         const url = new URL(window.location.href);
-        const message = loginResultMessage(url.searchParams.get("login"));
+        const result = parseLoginResult(url.searchParams.get("login"));
         if (url.searchParams.has("login")) {
           url.searchParams.delete("login");
           window.history.replaceState(null, "", url);
         }
-        if (message) setNotice(message);
+        if (result) setNotice(loginResults[result]);
       },
       (error: unknown) => {
-        if (!ignore) setLoadError(error instanceof CommentApiError ? error.message : "评论加载失败");
+        if (!ignore) setLoadError(commentErrorText(errors, error instanceof CommentApiError ? error.reason : "unavailable"));
       },
     );
     return () => {
       ignore = true;
     };
-  }, [visible, slug, reloadKey]);
+    // 字典对象是模块级常量，引用不变，列为依赖不会引起重复加载
+  }, [visible, slug, reloadKey, loginResults, errors]);
 
   const reload = () => setReloadKey((key) => key + 1);
   const me = data?.me.commenter ?? null;
@@ -192,20 +197,21 @@ export function Comments({ slug }: { slug: string }) {
       setReplyTarget(null);
       setEditingId(null);
       reload();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "退出失败");
+    } catch {
+      // 退出失败的原因（网络、服务端）对读者没有区别，统一提示
+      setNotice(t.errors.signOutFailed);
     }
   }
 
   function submitted(comment: PublicComment) {
     setReplyTarget(null);
-    setNotice(comment.status === "pending" ? "评论已提交，审核通过后所有人都能看到。" : null);
+    setNotice(comment.status === "pending" ? t.notices.submittedPending : null);
     reload();
   }
 
   function edited() {
     setEditingId(null);
-    setNotice("评论已修改。");
+    setNotice(t.notices.edited);
     reload();
   }
 
@@ -216,10 +222,10 @@ export function Comments({ slug }: { slug: string }) {
     try {
       await commentsApi.remove(pendingDelete.id);
       setPendingDelete(null);
-      setNotice("评论已删除。");
+      setNotice(t.notices.deleted);
       reload();
     } catch (error) {
-      setDeleteError(error instanceof CommentApiError ? error.message : "删除失败，请稍后重试");
+      setDeleteError(commentErrorText(t.errors, error instanceof CommentApiError ? error.reason : "unavailable", t.errors.deleteFailed));
     } finally {
       setDeleting(false);
     }
@@ -248,7 +254,8 @@ export function Comments({ slug }: { slug: string }) {
   return (
     <section id="comments" ref={sectionRef} className={styles.section} aria-labelledby="comments-heading">
       <h2 id="comments-heading" className={styles.heading}>
-        评论{count > 0 && <span className={styles.count}>{count}</span>}
+        {t.heading}
+        {count > 0 && <span className={styles.count}>{count}</span>}
       </h2>
 
       {notice && (
@@ -258,7 +265,7 @@ export function Comments({ slug }: { slug: string }) {
       )}
 
       {loadError && (
-        <Banner title="评论加载失败" action={<Button onClick={reload}>重试</Button>}>
+        <Banner title={t.loadErrorTitle} action={<Button onClick={reload}>{t.retry}</Button>}>
           {loadError}
         </Banner>
       )}
@@ -266,23 +273,23 @@ export function Comments({ slug }: { slug: string }) {
       {!data && !loadError && (
         <p className={styles.loading} role="status">
           {visible && <Spinner />}
-          <span>{visible ? "正在加载评论…" : ""}</span>
+          <span>{visible ? t.loading : ""}</span>
         </p>
       )}
 
       {data && (
         <>
           {!data.me.configured ? (
-            <p className={styles.hint}>评论暂未开放。</p>
+            <p className={styles.hint}>{t.closed}</p>
           ) : me ? (
             me.trust === "blocked" ? (
-              <p className={styles.hint}>你已被禁止评论。</p>
+              <p className={styles.hint}>{t.blocked}</p>
             ) : (
               <CommentForm
                 me={me}
-                label="发表评论"
-                placeholder="写下你的想法…"
-                submitLabel="发表评论"
+                label={t.form.newLabel}
+                placeholder={t.form.newPlaceholder}
+                submitLabel={t.form.newSubmit}
                 submit={(body) => commentsApi.post(slug, { body })}
                 onDone={submitted}
                 onLogout={logout}
@@ -291,14 +298,14 @@ export function Comments({ slug }: { slug: string }) {
           ) : (
             <div className={styles.login}>
               <a className={buttonClassName({ variant: "secondary" })} href={githubLoginHref(pathname)}>
-                用 GitHub 登录后评论
+                {t.signIn}
               </a>
-              <p className={styles.hint}>只读取你的 GitHub 公开资料（用户名和头像）。</p>
+              <p className={styles.hint}>{t.signInHint}</p>
             </div>
           )}
 
           {data.list.threads.length === 0 ? (
-            <p className={styles.empty}>还没有评论。</p>
+            <p className={styles.empty}>{t.empty}</p>
           ) : (
             <ol className={styles.threads}>
               {data.list.threads.map((thread) => (
@@ -320,9 +327,9 @@ export function Comments({ slug }: { slug: string }) {
                           <CommentForm
                             key={replyTarget.parentId}
                             me={me}
-                            label={`回复 @${replyTarget.login}`}
-                            placeholder={`回复 @${replyTarget.login}…`}
-                            submitLabel="回复"
+                            label={t.form.replyLabel(replyTarget.login)}
+                            placeholder={t.form.replyPlaceholder(replyTarget.login)}
+                            submitLabel={t.form.replySubmit}
                             autoFocus
                             submit={(body) => commentsApi.post(slug, { body, parentId: replyTarget.parentId })}
                             onDone={submitted}
@@ -341,15 +348,16 @@ export function Comments({ slug }: { slug: string }) {
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="删除这条评论？"
-        confirmLabel="删除"
+        title={t.deleteDialog.title}
+        confirmLabel={t.deleteDialog.confirm}
+        cancelLabel={t.deleteDialog.cancel}
         destructive
         busy={deleting}
         error={deleteError}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setPendingDelete(null)}
       >
-        评论内容会被清除，无法恢复。
+        {t.deleteDialog.body}
       </ConfirmDialog>
     </section>
   );

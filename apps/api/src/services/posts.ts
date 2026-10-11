@@ -1,101 +1,113 @@
-import type {
-  AdminPost,
-  ListPostsQuery,
-  Post,
-  postCreateInputSchema,
-  PostSummary,
-  PostSummaryPage,
-  postUpdateInputSchema,
-  Tag,
-  TagWithCount,
+import {
+  type AdminPost,
+  defaultSourceLocale,
+  type AdminTranslationSummary,
+  type ListPostsQuery,
+  type Locale,
+  localeInfo,
+  locales,
+  type Post,
+  type postCreateInputSchema,
+  type PostSummary,
+  type PostSummaryPage,
+  type PostStatus,
+  type postUpdateInputSchema,
+  type PublicPost,
+  type Tag,
+  type TagWithCount,
 } from "@blog/shared";
-import { and, asc, count, desc, eq, getTableColumns, inArray, ne, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, inArray, ne, or, type SQL, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { posts, postTags, tags } from "../db/schema.ts";
+import { posts, postTags, postTranslations, tags } from "../db/schema.ts";
 import { type Cursor, encodeCursor } from "../lib/cursor.ts";
 import { excerptFromMarkdown } from "../lib/excerpt.ts";
-import { plainTextFromMarkdown } from "../lib/markdown-text.ts";
-import { buildSearchVector } from "../lib/search-text.ts";
+import { sourceHash } from "../lib/source-hash.ts";
 import { imageMetaForPost, syncPostImages } from "./images.ts";
+import { type Executor, searchVectorOf, tagsByPostId } from "./post-common.ts";
+import { isOutdated, reindexTranslationsOf, translationColumns, translationSummariesByPostId } from "./translations.ts";
+
 
 // 服务层接收的是"校验之后"的数据（zod 的 output 类型，默认值已填好）
 type CreateData = z.output<typeof postCreateInputSchema>;
 type UpdateData = z.output<typeof postUpdateInputSchema>;
 
-/** db 本身或事务对象，两者的查询 API 相同 */
-type Executor = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
-
 // 搜索索引只在搜索时用到，其他查询都不读它（可能有几百 KB）
 const { searchVector: _searchVector, ...postColumns } = getTableColumns(posts);
 type PostRow = Omit<typeof posts.$inferSelect, "searchVector">;
-type SummaryRow = Omit<PostRow, "contentMd">;
 
-// 列表不需要正文：只选需要的列，不从数据库搬运全文
-const summaryColumns = {
-  id: posts.id,
-  slug: posts.slug,
-  title: posts.title,
-  excerpt: posts.excerpt,
-  status: posts.status,
-  publishedAt: posts.publishedAt,
-  createdAt: posts.createdAt,
-  updatedAt: posts.updatedAt,
-};
+/** 一篇文章某个语言版本的内容（原文或译文） */
+type Version = { locale: Locale; title: string; excerpt: string };
 
-/** 一次查出多篇文章的标签（避免每篇文章各查一次的 N+1 问题），按作者填写的顺序。 */
-export async function tagsByPostId(db: Executor, postIds: number[]): Promise<Map<number, Tag[]>> {
-  const result = new Map<number, Tag[]>(postIds.map((id) => [id, []]));
-  if (postIds.length === 0) return result;
+/** 原文的摘要长度按原文语言取 */
+const excerptOf = (contentMd: string, locale: Locale) => excerptFromMarkdown(contentMd, localeInfo[locale].excerptLength);
 
-  const rows = await db
-    .select({ postId: postTags.postId, slug: tags.slug, name: tags.name })
-    .from(postTags)
-    .innerJoin(tags, eq(tags.id, postTags.tagId))
-    .where(inArray(postTags.postId, postIds))
-    .orderBy(asc(postTags.position));
-
-  for (const { postId, ...tag } of rows) result.get(postId)?.push(tag);
-  return result;
-}
-
-function toSummary(row: SummaryRow, postTagList: Tag[]): PostSummary {
+function toSummary(row: { slug: string; status: PostStatus; publishedAt: Date | null }, version: Version, postTagList: Tag[]): PostSummary {
   return {
     slug: row.slug,
-    title: row.title,
-    excerpt: row.excerpt,
+    title: version.title,
+    excerpt: version.excerpt,
     status: row.status,
     publishedAt: row.publishedAt?.toISOString() ?? null,
     tags: postTagList,
+    locale: version.locale,
   };
 }
 
-function toPost(row: PostRow, postTagList: Tag[], imageMeta: Post["images"]): Post {
-  return { ...toSummary(row, postTagList), contentMd: row.contentMd, images: imageMeta };
-}
+/** 原文作为一个语言版本 */
+const originalOf = (row: PostRow): Version => ({ locale: row.sourceLocale, title: row.title, excerpt: row.excerpt });
 
-function toAdminPost(row: PostRow, postTagList: Tag[], imageMeta: Post["images"]): AdminPost {
+function toAdminPost(row: PostRow, postTagList: Tag[], imageMeta: Post["images"], translations: AdminTranslationSummary[]): AdminPost {
   return {
-    ...toPost(row, postTagList, imageMeta),
+    ...toSummary(row, originalOf(row), postTagList),
+    contentMd: row.contentMd,
+    images: imageMeta,
     id: row.id,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    sourceLocale: row.sourceLocale,
+    sourceHash: sourceHash(row),
+    translations,
   };
 }
 
+/*
+ * 某种语言能看到哪些文章、看到的是哪个版本：
+ * - 原文就是这种语言 → 原文；
+ * - 否则有这种语言的译文 → 译文；
+ * - 都没有 → 不出现在这种语言的列表里（避免各语言列表里都是同样的原文，搜索引擎视为重复内容）。
+ * 连接条件里排除"原文就是这种语言"：即使库里意外有一篇与原文同语言的译文，也总是显示原文。
+ */
+function translationJoin(locale: Locale) {
+  return and(eq(postTranslations.postId, posts.id), eq(postTranslations.locale, locale), ne(posts.sourceLocale, locale));
+}
+const visibleIn = (locale: Locale) => or(eq(posts.sourceLocale, locale), sql`${postTranslations.postId} IS NOT NULL`);
+
 // ---------- 公开 ----------
 
-/** 已发布文章，按发布时间倒序，游标分页。 */
+/** 某种语言可见的已发布文章，按发布时间倒序，游标分页。标题和摘要是该语言的版本。 */
 export async function listPublishedPosts(
   db: Db,
-  { limit, cursor }: { limit: ListPostsQuery["limit"]; cursor: Cursor | null },
+  { limit, cursor, locale }: { limit: ListPostsQuery["limit"]; cursor: Cursor | null; locale: Locale },
 ): Promise<PostSummaryPage> {
   const rows = await db
-    .select(summaryColumns)
+    .select({
+      id: posts.id,
+      slug: posts.slug,
+      status: posts.status,
+      publishedAt: posts.publishedAt,
+      // 有译文用译文，否则（原文就是这种语言）用原文
+      title: sql<string>`COALESCE(${postTranslations.title}, ${posts.title})`,
+      excerpt: sql<string>`COALESCE(${postTranslations.excerpt}, ${posts.excerpt})`,
+      locale: sql<Locale>`COALESCE(${postTranslations.locale}, ${posts.sourceLocale})`,
+    })
     .from(posts)
+    // 按主键 (post_id, locale) 逐篇查译文：沿 (published_at, id) 索引取前 limit + 1 篇时，每篇一次索引查找
+    .leftJoin(postTranslations, translationJoin(locale))
     .where(
       and(
         eq(posts.status, "published"),
+        visibleIn(locale),
         // 行值比较 (a, b) < (x, y)：一个条件表达"排在游标之后"，并且能直接利用 (published_at, id) 索引
         cursor ? sql`(${posts.publishedAt}, ${posts.id}) < (${cursor.publishedAt}, ${cursor.id})` : undefined,
       ),
@@ -113,19 +125,54 @@ export async function listPublishedPosts(
   );
 
   return {
-    items: page.map((row) => toSummary(row, tagMap.get(row.id) ?? [])),
+    items: page.map((row) => toSummary(row, row, tagMap.get(row.id) ?? [])),
     nextCursor: hasMore && last?.publishedAt ? encodeCursor({ publishedAt: last.publishedAt, id: last.id }) : null,
   };
 }
 
-export async function getPublishedPost(db: Db, slug: string): Promise<Post | null> {
+/**
+ * 已发布文章的某个语言版本。没有该语言的译文时返回原文（locale 为原文语言、translation 为 null），
+ * 前台据此显示"暂无译文"的提示——直接访问 /en/posts/<slug> 不会 404。
+ */
+export async function getPublishedPost(db: Db, slug: string, locale: Locale): Promise<PublicPost | null> {
   const [row] = await db
     .select(postColumns)
     .from(posts)
     .where(and(eq(posts.slug, slug), eq(posts.status, "published")));
   if (!row) return null;
-  const [tagMap, imageMeta] = await Promise.all([tagsByPostId(db, [row.id]), imageMetaForPost(db, row.id)]);
-  return toPost(row, tagMap.get(row.id) ?? [], imageMeta);
+
+  const wantsTranslation = locale !== row.sourceLocale;
+  const [tagMap, imageMeta, translated, translationLocales] = await Promise.all([
+    tagsByPostId(db, [row.id]),
+    // 图片引用关系是原文和所有译文的并集，对哪个语言版本都适用
+    imageMetaForPost(db, row.id),
+    wantsTranslation
+      ? db
+          .select(translationColumns)
+          .from(postTranslations)
+          .where(and(eq(postTranslations.postId, row.id), eq(postTranslations.locale, locale)))
+          .then(([t]) => t)
+      : undefined,
+    db.select({ locale: postTranslations.locale }).from(postTranslations).where(eq(postTranslations.postId, row.id)),
+  ]);
+
+  const available = new Set<Locale>([row.sourceLocale, ...translationLocales.map((t) => t.locale)]);
+  const base = { sourceLocale: row.sourceLocale, availableLocales: locales.filter((l) => available.has(l)), images: imageMeta };
+  const postTagList = tagMap.get(row.id) ?? [];
+
+  if (!translated) {
+    return { ...toSummary(row, originalOf(row), postTagList), contentMd: row.contentMd, ...base, translation: null };
+  }
+  return {
+    ...toSummary(row, translated, postTagList),
+    contentMd: translated.contentMd,
+    ...base,
+    translation: {
+      origin: translated.origin,
+      translatedAt: translated.translatedAt.toISOString(),
+      outdated: isOutdated(translated.sourceHash, sourceHash(row)),
+    },
+  };
 }
 
 /** 已发布文章的 id（阅读计数用）；不存在或是草稿返回 null。 */
@@ -137,35 +184,48 @@ export async function getPublishedPostId(db: Db, slug: string): Promise<number |
   return row?.id ?? null;
 }
 
-/** 已发布文章用到的标签及篇数；只被草稿用到的标签不出现。 */
-export async function listTags(db: Db): Promise<TagWithCount[]> {
+/** 某种语言可见的已发布文章用到的标签及篇数；只被草稿或该语言看不到的文章用到的标签不出现。 */
+export async function listTags(db: Db, locale: Locale): Promise<TagWithCount[]> {
   const postCount = count(posts.id);
   return db
     .select({ slug: tags.slug, name: tags.name, count: postCount })
     .from(tags)
     .innerJoin(postTags, eq(postTags.tagId, tags.id))
     .innerJoin(posts, and(eq(posts.id, postTags.postId), eq(posts.status, "published")))
+    .leftJoin(postTranslations, translationJoin(locale))
+    .where(visibleIn(locale))
     .groupBy(tags.id)
     .orderBy(desc(postCount), asc(tags.name));
 }
 
 // ---------- 管理 ----------
 
+/**
+ * 后台的文章查询：标签、译文概要各一次查询，不随文章数增加。
+ * db 可能是事务（写入后读回），同一个事务连接上的查询只能一条接一条地发（并发调用 client.query() 已被 pg 弃用，pg 9 会直接报错），
+ * 所以这里不用 Promise.all
+ */
+async function toAdminPosts(db: Executor, rows: PostRow[], imageMetaOf: (row: PostRow) => Promise<Post["images"]>): Promise<AdminPost[]> {
+  const ids = rows.map((r) => r.id);
+  const tagMap = await tagsByPostId(db, ids);
+  const translationMap = await translationSummariesByPostId(db, new Map(rows.map((r) => [r.id, sourceHash(r)])));
+  // 只有 getPostById（单篇）传入会查库的 imageMetaOf，逐篇查没有额外代价
+  const imageMetas: Post["images"][] = [];
+  for (const row of rows) imageMetas.push(await imageMetaOf(row));
+  return rows.map((row, i) => toAdminPost(row, tagMap.get(row.id) ?? [], imageMetas[i] ?? {}, translationMap.get(row.id) ?? []));
+}
+
 export async function listAllPosts(db: Db): Promise<AdminPost[]> {
   const rows = await db.select(postColumns).from(posts).orderBy(desc(posts.updatedAt), desc(posts.id));
-  const tagMap = await tagsByPostId(
-    db,
-    rows.map((r) => r.id),
-  );
   // 列表不渲染正文，不需要图片信息
-  return rows.map((row) => toAdminPost(row, tagMap.get(row.id) ?? [], {}));
+  return toAdminPosts(db, rows, async () => ({}));
 }
 
 export async function getPostById(db: Executor, id: number): Promise<AdminPost | null> {
   const [row] = await db.select(postColumns).from(posts).where(eq(posts.id, id));
   if (!row) return null;
-  const [tagMap, imageMeta] = await Promise.all([tagsByPostId(db, [row.id]), imageMetaForPost(db, row.id)]);
-  return toAdminPost(row, tagMap.get(row.id) ?? [], imageMeta);
+  const [post] = await toAdminPosts(db, [row], (r) => imageMetaForPost(db, r.id));
+  return post ?? null;
 }
 
 /** 同一 slug 只保留第一次出现的。注意不能用 new Map(entries)：重复 key 会被后面的值覆盖 */
@@ -173,10 +233,6 @@ function uniqueTags(postTagList: Tag[]): Tag[] {
   const bySlug = new Map<string, Tag>();
   for (const tag of postTagList) if (!bySlug.has(tag.slug)) bySlug.set(tag.slug, tag);
   return [...bySlug.values()];
-}
-
-function searchVectorOf(post: { title: string; contentMd: string; tags: Tag[] }): string {
-  return buildSearchVector({ title: post.title, tags: post.tags.map((t) => t.name), body: plainTextFromMarkdown(post.contentMd) });
 }
 
 /**
@@ -243,6 +299,13 @@ export async function reindexPosts(db: Executor, where: SQL): Promise<number> {
   return rows.length;
 }
 
+/** 标签改名影响到的其他文章：原文和译文的索引都要重建 */
+async function reindexForRenamedTags(tx: Executor, postIds: number[]): Promise<void> {
+  if (postIds.length === 0) return;
+  await reindexPosts(tx, inArray(posts.id, postIds));
+  await reindexTranslationsOf(tx, postIds);
+}
+
 export async function createPost(db: Db, data: CreateData): Promise<AdminPost> {
   return db.transaction(async (tx) => {
     const [row] = await tx
@@ -251,7 +314,8 @@ export async function createPost(db: Db, data: CreateData): Promise<AdminPost> {
         slug: data.slug,
         title: data.title,
         contentMd: data.contentMd,
-        excerpt: excerptFromMarkdown(data.contentMd),
+        // 新文章的原文语言目前固定为默认值（posts.source_locale 的列默认值），摘要长度按它取
+        excerpt: excerptOf(data.contentMd, defaultSourceLocale),
         searchVector: searchVectorOf({ title: data.title, contentMd: data.contentMd, tags: uniqueTags(data.tags) }),
         status: data.status,
         // 显式给了就用（导入旧文章）；否则发布时取当前时间，草稿为 null
@@ -265,8 +329,8 @@ export async function createPost(db: Db, data: CreateData): Promise<AdminPost> {
     if (!row) throw new Error("insert returned no row");
 
     const affected = await replaceTags(tx, row.id, data.tags);
-    if (affected.length > 0) await reindexPosts(tx, inArray(posts.id, affected));
-    await syncPostImages(tx, row.id, data.contentMd);
+    await reindexForRenamedTags(tx, affected);
+    await syncPostImages(tx, row.id);
     const created = await getPostById(tx, row.id);
     if (!created) throw new Error("created post not found");
     return created;
@@ -303,7 +367,7 @@ export async function updatePost(
       .update(posts)
       .set({
         ...fields,
-        ...(contentMd !== undefined && { contentMd, excerpt: excerptFromMarkdown(contentMd) }),
+        ...(contentMd !== undefined && { contentMd, excerpt: excerptOf(contentMd, current.sourceLocale) }),
         ...(publishedAt !== undefined && { publishedAt: publishedAt ? new Date(publishedAt) : null }),
         ...(firstPublish && { publishedAt: new Date() }),
         ...(searchVector !== undefined && { searchVector }),
@@ -313,8 +377,10 @@ export async function updatePost(
       .where(eq(posts.id, id));
 
     const affected = newTags !== undefined ? await replaceTags(tx, id, newTags) : [];
-    if (affected.length > 0) await reindexPosts(tx, inArray(posts.id, affected));
-    if (contentMd !== undefined) await syncPostImages(tx, id, contentMd);
+    await reindexForRenamedTags(tx, affected);
+    // 标签也在译文的搜索索引里（B 权重）：这篇文章的标签变了，它的译文也要重建
+    if (newTags !== undefined) await reindexTranslationsOf(tx, [id]);
+    if (contentMd !== undefined) await syncPostImages(tx, id);
     const post = await getPostById(tx, id);
     if (!post) throw new Error("updated post not found");
     return { post, before: { slug: current.slug, status: current.status } };

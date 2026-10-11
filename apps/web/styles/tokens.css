@@ -12,8 +12,16 @@
   color-scheme: light dark;
 
   /* ---------- 字体 ---------- */
-  --font-family-text: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans",
+  /*
+   * 系统字体栈，按语言调整 CJK 字体的顺序（见下方 :lang()）：中日文共用汉字（Han unification），
+   * 同一个码位在简体中文和日文字体里字形不同，字体栈里谁在前面就用谁的字形。
+   * 默认（中文、英文）PingFang SC 在前；日文换成 Hiragino / Noto Sans CJK JP 在前。
+   */
+  --font-family-text-default: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans",
     "Noto Sans CJK SC", sans-serif;
+  --font-family-text-ja: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+    "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+  --font-family-text: var(--font-family-text-default);
   --font-family-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
   /*
@@ -138,6 +146,19 @@
   --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
   --duration-fast: 150ms;
   --duration-spring: 400ms;
+}
+
+/*
+ * 按语言选字体栈。:lang() 按元素的语言匹配（自己的 lang 属性，或从祖先继承的语言）。
+ * 带 lang 属性、但不是日文的元素（比如日文页面里显示中文原文的 <div lang="zh-CN">）要显式退回默认值：
+ * 自定义属性是继承的，不写这条它会沿用祖先的日文字体栈。新增语言默认用默认字体栈，需要时在这里加一条。
+ */
+:lang(ja) {
+  --font-family-text: var(--font-family-text-ja);
+}
+
+[lang]:not(:lang(ja)) {
+  --font-family-text: var(--font-family-text-default);
 }
 
 @supports (transition-timing-function: linear(0, 1)) {
