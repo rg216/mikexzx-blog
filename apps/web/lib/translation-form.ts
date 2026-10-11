@@ -5,6 +5,8 @@ import {
   type Locale,
   locales,
   type PostStatus,
+  TRANSLATION_CONTENT_MAX_LENGTH,
+  TRANSLATION_TITLE_MAX_LENGTH,
   type TranslationInput,
   translationInputSchema,
   type TranslationOrigin,
@@ -91,8 +93,107 @@ export function checkUntranslated(
  * PUT 请求体。sourceHash 传编辑器加载文章时拿到的 AdminPost.sourceHash，而不是保存那一刻再取一次：
  * 译文是对着"加载时那一版原文"写的，如果原文在编辑期间被别处改过，保存后仍应显示为过时。
  */
-export function buildTranslationInput(values: TranslationFormValues, sourceHash: string): TranslationInput {
-  return { title: values.title, contentMd: values.contentMd, sourceHash };
+export function buildTranslationInput(values: TranslationFormValues, sourceHash: string, generated?: GeneratedMarker): TranslationInput {
+  return generated ? { title: values.title, contentMd: values.contentMd, sourceHash, generated } : { title: values.title, contentMd: values.contentMd, sourceHash };
+}
+
+// ---------- 机器译文还是人工译文 ----------
+
+/**
+ * 保存请求里的"这是未经修改的机器译文"标记（API 据此存 origin = machine、model）。
+ * 和 @blog/shared 的 translationInputSchema.generated 同形状。
+ */
+export type GeneratedMarker = NonNullable<TranslationInput["generated"]>;
+
+/** 生成完成那一刻编辑器里的内容和实际服务的模型 */
+export type GeneratedSnapshot = TranslationFormValues & { model: string };
+
+/**
+ * 保存时带不带 generated 标记：标题和正文与生成结果一字不差才带（存为机器译文），改过任何一个字就不带（存为人工译文）。
+ * 按内容判断而不是记"作者有没有动过"：改了又改回去，内容就是机器生成的那份，如实记为机器译文。
+ */
+export function generatedMarker(values: TranslationFormValues, snapshot: GeneratedSnapshot | null): GeneratedMarker | undefined {
+  if (!snapshot || isTranslationDirty(snapshot, values)) return undefined;
+  return { model: snapshot.model };
+}
+
+/**
+ * none        这次没有生成过（或生成的结果已作废）
+ * unmodified  编辑器里是未经修改的机器译文
+ * modified    生成之后改过，保存后记为人工译文
+ */
+export type GeneratedState = "none" | "unmodified" | "modified";
+
+export function generatedState(values: TranslationFormValues, snapshot: GeneratedSnapshot | null): GeneratedState {
+  if (!snapshot) return "none";
+  return generatedMarker(values, snapshot) ? "unmodified" : "modified";
+}
+
+export const generatedStateLabels: Record<Exclude<GeneratedState, "none">, string> = {
+  unmodified: "机器翻译（未修改）",
+  modified: "已修改，保存后记为人工译文",
+};
+
+// ---------- 生成译文 ----------
+
+/**
+ * 点"生成译文"或失败后点"重试"时：
+ *   blocked_uploading  图片还在上传：先不开始（上传完成时会往正文里写，写进的是马上要被替换掉的内容）
+ *   confirm            先确认"会替换编辑器里的内容"
+ *   start              直接开始
+ * 生成（retryBase 不传）：编辑器里已有内容就确认。
+ * 重试（retryBase 是上一次开始生成时的内容）：那次的确认只覆盖当时的内容——失败后编辑器又可以编辑了，
+ * 之后又改过（或者那次没确认过、当时是空的）就要再确认，免得续做完成时悄悄覆盖作者刚写的东西。
+ */
+export type GenerateStart = "blocked_uploading" | "confirm" | "start";
+
+export function decideGenerateStart({
+  uploading,
+  values,
+  retryBase,
+}: {
+  uploading: boolean;
+  values: TranslationFormValues;
+  retryBase?: TranslationFormValues | null;
+}): GenerateStart {
+  if (uploading) return "blocked_uploading";
+  const hasContent = values.title.trim() !== "" || values.contentMd.trim() !== "";
+  if (!hasContent) return "start";
+  if (retryBase && !isTranslationDirty(retryBase, values)) return "start";
+  return "confirm";
+}
+
+const lengthFormatter = new Intl.NumberFormat("zh-CN");
+
+/**
+ * 生成的译文超出保存上限的地方（中译英字数常涨 2～3 倍，长文的机器译文可能超过 20 万字）。
+ * 生成结果里列为必须先处理的问题，而不是等作者按了保存才在字段上报错。长度和 schema 一样按 UTF-16 码元、标题去掉首尾空白计。
+ */
+export function translationLengthProblems(values: TranslationFormValues): string[] {
+  const f = (n: number) => lengthFormatter.format(n);
+  const problems: string[] = [];
+  const titleLength = values.title.trim().length;
+  if (titleLength > TRANSLATION_TITLE_MAX_LENGTH) problems.push(`标题 ${f(titleLength)} 字，超过 ${f(TRANSLATION_TITLE_MAX_LENGTH)} 字的上限`);
+  if (values.contentMd.length > TRANSLATION_CONTENT_MAX_LENGTH) {
+    problems.push(`正文 ${f(values.contentMd.length)} 字，超过 ${f(TRANSLATION_CONTENT_MAX_LENGTH)} 字的上限`);
+  }
+  return problems;
+}
+
+/**
+ * 模型 ID → 界面上的名字："claude-sonnet-5-5" → "Sonnet 5.5"，带日期后缀的 "claude-opus-4-1-20250805" → "Opus 4.1"。
+ * 认不出的格式原样返回（宁可难看也不要猜错）；多个模型（服务端回退时，见 combineModels）逐个转换。
+ */
+export function modelDisplayName(model: string): string {
+  return model
+    .split(", ")
+    .map((id) => {
+      const match = /^claude-([a-z]+)-(\d{1,2}(?:-\d{1,2})*)(?:-\d{8})?$/.exec(id);
+      if (!match) return id;
+      const [, family = "", version = ""] = match;
+      return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${version.replaceAll("-", ".")}`;
+    })
+    .join(", ");
 }
 
 function fieldForPath(path: string): TranslationFormField | "form" {
@@ -163,7 +264,7 @@ export function canTranslateTo(post: Pick<AdminPost, "sourceLocale">, locale: Lo
 
 export function originLabel(origin: TranslationOrigin, model: string | null): string {
   if (origin === "human") return "人工翻译";
-  return model ? `机器翻译（${model}）` : "机器翻译";
+  return model ? `机器翻译 · ${modelDisplayName(model)}` : "机器翻译";
 }
 
 /** 文章列表里的语言小标记：EN / JA（只看两个字母就够分辨，列表里放不下语言全名） */

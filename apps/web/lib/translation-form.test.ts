@@ -1,17 +1,23 @@
-import { type AdminTranslationSummary, translationInputSchema } from "@blog/shared";
+import { type AdminTranslationSummary, TRANSLATION_CONTENT_MAX_LENGTH, TRANSLATION_TITLE_MAX_LENGTH, translationInputSchema } from "@blog/shared";
 import { describe, expect, it } from "vitest";
 import {
   buildTranslationInput,
   canTranslateTo,
   checkUntranslated,
+  decideGenerateStart,
   formFromSource,
+  type GeneratedSnapshot,
+  generatedMarker,
+  generatedState,
   isTranslationDirty,
   issuesToTranslationErrors,
   localeShortLabel,
+  modelDisplayName,
   needsSave,
   originLabel,
   translationSaveHint,
   translationState,
+  translationLengthProblems,
   translationTargets,
   untranslatedFields,
   validateTranslationForm,
@@ -140,7 +146,8 @@ describe("issuesToTranslationErrors", () => {
 describe("labels", () => {
   it("labels origins, with the model when known", () => {
     expect(originLabel("human", null)).toBe("人工翻译");
-    expect(originLabel("machine", "claude-x")).toBe("机器翻译（claude-x）");
+    expect(originLabel("machine", "claude-x")).toBe("机器翻译 · claude-x");
+    expect(originLabel("machine", "claude-sonnet-5-5")).toBe("机器翻译 · Sonnet 5.5");
     expect(originLabel("machine", null)).toBe("机器翻译");
   });
 
@@ -193,5 +200,111 @@ describe("untranslated content", () => {
 
   it("passes a real translation", () => {
     expect(checkUntranslated({ title: "Caching", contentMd: "Body." }, source, null)).toEqual({ kind: "ok" });
+  });
+});
+
+describe("machine or human translation", () => {
+  const snapshot: GeneratedSnapshot = { title: "Hello", contentMd: "Body\n", model: "claude-sonnet-5-5" };
+
+  it("marks a save as machine output only when title and body are exactly the generated ones", () => {
+    expect(generatedMarker({ title: "Hello", contentMd: "Body\n" }, snapshot)).toEqual({ model: "claude-sonnet-5-5" });
+    expect(generatedState({ title: "Hello", contentMd: "Body\n" }, snapshot)).toBe("unmodified");
+  });
+
+  it("treats any change, even whitespace, in either field as a human translation", () => {
+    for (const values of [
+      { title: "Hello!", contentMd: "Body\n" },
+      { title: "Hello", contentMd: "Body" },
+      { title: "Hello ", contentMd: "Body\n" },
+    ]) {
+      expect(generatedMarker(values, snapshot)).toBeUndefined();
+      expect(generatedState(values, snapshot)).toBe("modified");
+    }
+  });
+
+  it("has no marker when nothing was generated", () => {
+    expect(generatedMarker({ title: "Hello", contentMd: "Body\n" }, null)).toBeUndefined();
+    expect(generatedState({ title: "Hello", contentMd: "Body\n" }, null)).toBe("none");
+  });
+
+  it("puts the marker into a PUT body the shared schema accepts, and leaves it out otherwise", () => {
+    const withMarker = buildTranslationInput({ title: "Hello", contentMd: "Body" }, hash, { model: "claude-sonnet-5-5" });
+    expect(withMarker).toEqual({ title: "Hello", contentMd: "Body", sourceHash: hash, generated: { model: "claude-sonnet-5-5" } });
+    expect(translationInputSchema.parse(withMarker).generated).toEqual({ model: "claude-sonnet-5-5" });
+    const without = buildTranslationInput({ title: "Hello", contentMd: "Body" }, hash, undefined);
+    expect("generated" in without).toBe(false);
+  });
+});
+
+describe("modelDisplayName", () => {
+  it("turns model ids into family + version", () => {
+    expect(modelDisplayName("claude-sonnet-5-5")).toBe("Sonnet 5.5");
+    expect(modelDisplayName("claude-opus-4-1-20250805")).toBe("Opus 4.1");
+    expect(modelDisplayName("claude-haiku-5")).toBe("Haiku 5");
+  });
+
+  it("returns unknown formats unchanged", () => {
+    expect(modelDisplayName("claude-3-5-sonnet-20241022")).toBe("claude-3-5-sonnet-20241022");
+    expect(modelDisplayName("gpt-x")).toBe("gpt-x");
+    expect(modelDisplayName("claude-sonnet-5-5-extra")).toBe("claude-sonnet-5-5-extra");
+  });
+
+  it("converts each model of a combined list", () => {
+    expect(modelDisplayName("claude-sonnet-5-5, claude-opus-5")).toBe("Sonnet 5.5, Opus 5");
+  });
+});
+
+describe("decideGenerateStart", () => {
+  const empty = { title: "", contentMd: "" };
+  const before = { title: "Old", contentMd: "Old body." };
+
+  it("never starts while an image is uploading", () => {
+    expect(decideGenerateStart({ uploading: true, values: empty })).toBe("blocked_uploading");
+    expect(decideGenerateStart({ uploading: true, values: before, retryBase: before })).toBe("blocked_uploading");
+  });
+
+  it("asks before generating over existing content, not over an empty editor", () => {
+    expect(decideGenerateStart({ uploading: false, values: empty })).toBe("start");
+    expect(decideGenerateStart({ uploading: false, values: { title: " ", contentMd: "\n" } })).toBe("start");
+    expect(decideGenerateStart({ uploading: false, values: before })).toBe("confirm");
+    expect(decideGenerateStart({ uploading: false, values: { title: "", contentMd: "x" } })).toBe("confirm");
+  });
+
+  it("retries without asking again only when nothing changed since the failed run started", () => {
+    // 那次开始前已经确认过替换这份内容
+    expect(decideGenerateStart({ uploading: false, values: before, retryBase: before })).toBe("start");
+    // 失败之后作者又写了东西：续做完成时会被覆盖，要再确认
+    expect(decideGenerateStart({ uploading: false, values: { ...before, contentMd: "Old body. My own paragraph." }, retryBase: before })).toBe("confirm");
+    // 那次开始时编辑器是空的（没有确认过），之后写了东西
+    expect(decideGenerateStart({ uploading: false, values: before, retryBase: empty })).toBe("confirm");
+    // 失败后把内容清空了：没有可丢的
+    expect(decideGenerateStart({ uploading: false, values: empty, retryBase: before })).toBe("start");
+    expect(decideGenerateStart({ uploading: false, values: before, retryBase: null })).toBe("confirm");
+  });
+});
+
+describe("translationLengthProblems", () => {
+  it("accepts text right at the limits", () => {
+    expect(translationLengthProblems({ title: `  ${"T".repeat(TRANSLATION_TITLE_MAX_LENGTH)}  `, contentMd: "x".repeat(TRANSLATION_CONTENT_MAX_LENGTH) })).toEqual([]);
+  });
+
+  it("names each field that is over its limit, with the numbers", () => {
+    expect(translationLengthProblems({ title: "T".repeat(230), contentMd: "x".repeat(220_000) })).toEqual([
+      "标题 230 字，超过 200 字的上限",
+      "正文 220,000 字，超过 200,000 字的上限",
+    ]);
+    expect(translationLengthProblems({ title: "ok", contentMd: "x".repeat(TRANSLATION_CONTENT_MAX_LENGTH + 1) })).toHaveLength(1);
+  });
+
+  it("agrees with the save schema", () => {
+    const sourceHash = "a".repeat(64);
+    for (const values of [
+      { title: "T".repeat(TRANSLATION_TITLE_MAX_LENGTH + 1), contentMd: "x" },
+      { title: "T", contentMd: "x".repeat(TRANSLATION_CONTENT_MAX_LENGTH + 1) },
+      { title: "T".repeat(TRANSLATION_TITLE_MAX_LENGTH), contentMd: "x".repeat(TRANSLATION_CONTENT_MAX_LENGTH) },
+    ]) {
+      const savable = translationInputSchema.safeParse({ ...values, sourceHash }).success;
+      expect(translationLengthProblems(values).length === 0).toBe(savable);
+    }
   });
 });

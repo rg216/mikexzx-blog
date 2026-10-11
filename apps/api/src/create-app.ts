@@ -10,7 +10,7 @@ import { createRateLimiter, unlimited } from "./lib/rate-limit.ts";
 import { noopRevalidator, type Revalidator } from "./lib/revalidate.ts";
 import { type AuthEnv, loadCommenter, loadSession, requireSameOrigin } from "./middleware/auth.ts";
 import { adminRoutes } from "./routes/admin.ts";
-import type { RedisProvider } from "./redis.ts";
+import { type RedisProvider, redisReachable } from "./redis.ts";
 import type { GitHub } from "./auth/github.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { commenterAuthRoutes } from "./routes/commenter-auth.ts";
@@ -20,6 +20,7 @@ import { publicRoutes } from "./routes/public.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { viewRoutes } from "./routes/views.ts";
 import type { ObjectStorage } from "./storage.ts";
+import type { Translator } from "./lib/translator.ts";
 
 type AppOptions = {
   db: Db;
@@ -34,6 +35,10 @@ type AppOptions = {
   storage?: ObjectStorage | null;
   /** 评论者的 GitHub 登录；不传则评论区只读 */
   github?: GitHub | null;
+  /** 大模型翻译；不传（或没有 redis）则生成接口返回 503（后台的生成按钮禁用） */
+  translator?: Translator | null;
+  /** 测试用：翻译流的心跳间隔（毫秒），默认 TRANSLATION_HEARTBEAT_MS */
+  translationHeartbeatMs?: number;
   /** 定时任务接口的密钥；不传则定时任务接口返回 503 */
   cronSecret?: string;
   /** 测试里关掉，避免刷屏 */
@@ -49,11 +54,16 @@ export function createApp({
   redis = null,
   storage = null,
   github = null,
+  translator = null,
+  translationHeartbeatMs,
   cronSecret,
   logRequests = false,
 }: AppOptions) {
   const app = new Hono<AuthEnv>();
   const limiter = redis ? createRateLimiter(redis) : unlimited;
+  // 翻译每次调用都花钱，限流（rules.translate）是唯一的额度上限：没有 Redis 就限不了，干脆不启用
+  const enabledTranslator = redis ? translator : null;
+  if (translator && !redis) console.warn("ANTHROPIC_API_KEY is set but REDIS_URL is not: LLM translation stays disabled (its rate limit needs Redis)");
 
   if (logRequests) app.use(logger());
   app.use(secureHeaders());
@@ -69,13 +79,19 @@ export function createApp({
   app.route("/", commentRoutes(db, limiter));
   app.route("/auth/github", commenterAuthRoutes(db, auth, github, limiter));
   app.route("/auth", authRoutes(db, auth, webauthn, limiter));
-  app.route("/admin", adminRoutes(db, revalidate, limiter, storage, github));
+  const translation = {
+    translator: enabledTranslator,
+    // 翻译的限流 fail-closed：Redis 连不上时生成会被拒，config 据此如实告诉编辑器
+    limiterHealthy: () => (redis ? redisReachable(redis) : Promise.resolve(false)),
+    ...(translationHeartbeatMs === undefined ? {} : { heartbeatMs: translationHeartbeatMs }),
+  };
+  app.route("/admin", adminRoutes(db, revalidate, limiter, storage, github, translation));
   app.route("/internal", internalRoutes(db, redis, storage, cronSecret));
 
   app.notFound((c) => c.json(errorBody("not_found", "接口不存在"), 404));
 
   app.onError((err, c) => {
-    if (err instanceof HttpError) return c.json(errorBody(err.code, err.message), err.status);
+    if (err instanceof HttpError) return c.json(errorBody(err.code, err.message, err.issues), err.status);
 
     // Hono 自己抛出的客户端错误（如请求体不是合法 JSON）：保留状态码，不要当成 500
     if (err instanceof HTTPException && err.status < 500) {

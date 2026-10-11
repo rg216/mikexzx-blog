@@ -6,3 +6,4 @@ export * from "./search.ts";
 export * from "./image.ts";
 export * from "./comment.ts";
 export * from "./media.ts";
+export * from "./translation.ts";

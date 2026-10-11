@@ -112,3 +112,8 @@
     margin-bottom: 0;
   }
 }
+
+/* 生成中的正文框：只读，文字用次要色，一眼看出"这不是可以编辑的状态" */
+.generating {
+  color: var(--color-secondary-label);
+}

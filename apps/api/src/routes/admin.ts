@@ -13,12 +13,20 @@ import type { ObjectStorage } from "../storage.ts";
 import type { GitHub } from "../auth/github.ts";
 import { adminCommentRoutes } from "./admin-comments.ts";
 import { imageRoutes, mediaFolderRoutes } from "./images.ts";
+import { type TranslationDeps, translateRoutes } from "./translate.ts";
 
 const idParam = z.object({ id: z.coerce.number().int().positive().max(2_147_483_647) });
 // 不支持的语言按 400 处理（与公开接口的 ?locale= 一致），而不是 404：那是请求本身写错了，不是"资源不存在"
 const translationParam = idParam.extend({ locale: localeSchema });
 
-export function adminRoutes(db: Db, revalidate: Revalidator, limiter: RateLimiter, storage: ObjectStorage | null, github: GitHub | null) {
+export function adminRoutes(
+  db: Db,
+  revalidate: Revalidator,
+  limiter: RateLimiter,
+  storage: ObjectStorage | null,
+  github: GitHub | null,
+  translation: TranslationDeps,
+) {
   // 写操作按用户限流：正常编辑远远用不到，主要防脚本失控或 session 泄露后的批量破坏
   const limitWrites = rateLimit(limiter, rules.adminWrite, (c) => `user:${sessionOf(c).user.id}`);
 
@@ -77,6 +85,8 @@ export function adminRoutes(db: Db, revalidate: Revalidator, limiter: RateLimite
       if (tags.length > 0) await revalidate(tags);
       return c.body(null, 204);
     })
+    // ---------- 大模型翻译（v5.5）：生成的译文只回给编辑器，保存仍走上面的 PUT ----------
+    .route("/", translateRoutes(db, translation, limiter))
     .route("/images", imageRoutes(db, storage))
     .route("/media-folders", mediaFolderRoutes(db))
     .route("/", adminCommentRoutes(db, github));

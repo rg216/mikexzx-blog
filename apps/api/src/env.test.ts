@@ -68,4 +68,15 @@ describe("loadEnv", () => {
       expect(() => loadEnv({ ...base, GITHUB_CLIENT_ID: "id" })).toThrow(/GITHUB_CLIENT_SECRET/);
     });
   });
+
+  describe("LLM translation", () => {
+    it("is optional: blank means unset (translation unavailable)", () => {
+      expect(loadEnv(base).ANTHROPIC_API_KEY).toBeUndefined();
+      expect(loadEnv({ ...base, ANTHROPIC_API_KEY: " \n" }).ANTHROPIC_API_KEY).toBeUndefined();
+    });
+
+    it("keeps a set key, trimmed", () => {
+      expect(loadEnv({ ...base, ANTHROPIC_API_KEY: "test-key-value\n" }).ANTHROPIC_API_KEY).toBe("test-key-value");
+    });
+  });
 });

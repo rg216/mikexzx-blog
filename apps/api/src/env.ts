@@ -36,6 +36,11 @@ const envSchema = z.object({
   /** 评论者的 GitHub 登录（GitHub App 的 Client ID 和 Client secret）。两项都设才启用；不设则评论区只读 */
   GITHUB_CLIENT_ID: z.string().optional(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
+  /**
+   * Claude API 的密钥（大模型翻译，v5.5）。未设置（或没有 REDIS_URL：翻译的限流需要它）则翻译功能不可用（生成接口 503，后台按钮禁用），其他功能照常。
+   * 不校验格式：密钥格式由 Anthropic 决定，错了调用时会得到 401（接口返回 502 并记日志）
+   */
+  ANTHROPIC_API_KEY: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
 });
 

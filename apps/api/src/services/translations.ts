@@ -1,4 +1,5 @@
 import {
+  checkTranslationStructure,
   type AdminTranslation,
   type AdminTranslationSummary,
   type Locale,
@@ -73,7 +74,7 @@ export async function translationSummariesByPostId(
 
 type PostForTranslation = { id: number; slug: string; status: PostStatus; sourceLocale: Locale; title: string; contentMd: string };
 
-async function findPost(db: Executor, postId: number, { lock = false } = {}): Promise<PostForTranslation> {
+export async function findPost(db: Executor, postId: number, { lock = false } = {}): Promise<PostForTranslation> {
   const query = db
     .select({ id: posts.id, slug: posts.slug, status: posts.status, sourceLocale: posts.sourceLocale, title: posts.title, contentMd: posts.contentMd })
     .from(posts)
@@ -101,7 +102,24 @@ export async function getTranslation(db: Executor, postId: number, locale: Local
 export type TranslationChange = { slug: string; status: PostStatus; existedBefore: boolean };
 
 /**
- * 新建或整体替换一篇译文（作者在后台手工编辑：origin 记为 human，model 为空）。
+ * 机器译文的结构校验（保存时在服务端再做一次，不信任编辑器）：代码、图片地址、链接地址、HTML、脚注被改动的
+ * 机器译文不能以 machine 保存——"结构校验不通过的机器译文不发布"。作者改过之后以人工译文保存不受此限制。
+ */
+export function assertMachineTranslationStructure(sourceMd: string, translationMd: string): void {
+  const { errors } = checkTranslationStructure(sourceMd, translationMd);
+  if (errors.length === 0) return;
+  throw new HttpError(
+    400,
+    "validation_error",
+    "机器译文的结构与原文不一致，不能作为机器译文保存（修正后会记为人工译文）",
+    errors.map((issue) => ({ path: "contentMd", message: issue.detail ? `${issue.message}：${issue.detail}` : issue.message })),
+  );
+}
+
+/**
+ * 新建或整体替换一篇译文。
+ * - 带 generated（编辑器里未经修改的机器译文）：原文指纹必须是当前的（否则 409），再做结构校验，存 origin = machine、model = generated.model；
+ * - 不带（作者手写或改过机器译文）：origin = human、model 为空。
  * 摘要按该语言的长度生成；搜索索引用译文的标题、正文加上文章的标签（标签不翻译）。
  */
 export async function upsertTranslation(
@@ -115,6 +133,14 @@ export async function upsertTranslation(
     if (locale === post.sourceLocale) {
       throw new HttpError(400, "validation_error", "不能为原文语言添加译文");
     }
+    if (data.generated) {
+      // 机器译文必须对着此刻的原文生成：编辑器是按它加载的那一版原文生成、校验的。原文之后又改过的话，
+      // 拿新原文做结构校验会冤枉一篇正确的译文（或放过一篇不再对应的），所以先拒绝，让作者载入最新原文重新生成。
+      // 人工译文不受此限：按旧原文保存是允许的，会显示为过时
+      if (data.sourceHash !== sourceHash(post)) throw new HttpError(409, "conflict", "原文已更新，请载入最新原文后重新生成");
+      // 和锁住的这一版原文比较：校验依据的原文与此刻库里的一致
+      assertMachineTranslationStructure(post.contentMd, data.contentMd);
+    }
     const [existing] = await tx
       .select({ postId: postTranslations.postId })
       .from(postTranslations)
@@ -126,8 +152,8 @@ export async function upsertTranslation(
       contentMd: data.contentMd,
       excerpt: excerptFromMarkdown(data.contentMd, localeInfo[locale].excerptLength),
       sourceHash: data.sourceHash,
-      origin: "human" as const,
-      model: null,
+      origin: data.generated ? ("machine" as const) : ("human" as const),
+      model: data.generated?.model ?? null,
       translatedAt: new Date(),
       searchVector: searchVectorOf({ title: data.title, contentMd: data.contentMd, tags: postTags }),
     };

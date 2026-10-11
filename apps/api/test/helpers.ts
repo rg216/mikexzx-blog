@@ -11,6 +11,7 @@ import { createDb } from "../src/db/client.ts";
 import { users } from "../src/db/schema.ts";
 import { createRedisProvider, type RedisProvider } from "../src/redis.ts";
 import { createObjectStorage, type ObjectStorage } from "../src/storage.ts";
+import type { Translator } from "../src/lib/translator.ts";
 
 export const WEB_ORIGIN = "https://blog.test";
 export const SETUP_TOKEN = "test-setup-token-0123456789abcdef0123456789";
@@ -218,12 +219,27 @@ export function createTestStorage(): ObjectStorage {
 /**
  * 每个测试文件调用一次：建连接、组装 app、每个测试前清空数据。
  * withRedis：连真实 Redis（限流、阅读计数）；withStorage：连真实的对象存储（图片上传）。
+ * redisProvider：换成自己的 Redis（如总是连不上的，测试 Redis 故障时的降级）；它的连接不由这里清空和关闭。
  */
-export function setupTestApp({ withRedis = false, withStorage = false }: { withRedis?: boolean; withStorage?: boolean } = {}) {
+export function setupTestApp({
+  withRedis = false,
+  withStorage = false,
+  translator = null,
+  redisProvider,
+  translationHeartbeatMs,
+}: {
+  withRedis?: boolean;
+  withStorage?: boolean;
+  translator?: Translator | null;
+  redisProvider?: RedisProvider;
+  /** 翻译流的心跳间隔（毫秒），测试心跳时调短 */
+  translationHeartbeatMs?: number;
+} = {}) {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) throw new Error("TEST_DATABASE_URL 未设置");
   const { db, pool } = createDb(url);
-  const redis: RedisProvider | null = withRedis ? createRedisProvider(process.env.TEST_REDIS_URL ?? "") : null;
+  const ownRedis: RedisProvider | null = withRedis ? createRedisProvider(process.env.TEST_REDIS_URL ?? "") : null;
+  const redis: RedisProvider | null = redisProvider ?? ownRedis;
   const storage = withStorage ? createTestStorage() : null;
   const fake = createFakeWebAuthn();
   const fakeGitHub = createFakeGitHub();
@@ -239,6 +255,8 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
     redis,
     storage,
     github: fakeGitHub.github,
+    translator,
+    ...(translationHeartbeatMs === undefined ? {} : { translationHeartbeatMs }),
     cronSecret: CRON_SECRET,
   });
 
@@ -256,11 +274,11 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
     fake.calls.length = 0;
     fakeGitHub.directory.clear();
     revalidations.length = 0;
-    if (redis) await (await redis()).flushDb();
+    if (ownRedis) await (await ownRedis()).flushDb();
   });
   afterAll(async () => {
     await pool.end();
-    if (redis) (await redis()).destroy();
+    if (ownRedis) (await ownRedis()).destroy();
   });
 
   /** 直接在库里建管理员和 session（管理接口的测试不必每次走 Passkey 流程） */
@@ -277,7 +295,8 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
     return adminCookie;
   }
 
-  async function request(method: string, path: string, options: RequestOptions = {}) {
+  /** 发请求并处理 Set-Cookie，返回原始 Response（流式响应的测试自己读 body） */
+  async function requestRaw(method: string, path: string, options: RequestOptions & { signal?: AbortSignal } = {}) {
     const headers: Record<string, string> = { ...options.headers };
     const origin = options.origin === undefined ? WEB_ORIGIN : options.origin;
     if (origin !== null) headers.origin = origin;
@@ -294,6 +313,7 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
       method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      ...(options.signal ? { signal: options.signal } : {}),
     });
 
     for (const setCookie of useJar ? res.headers.getSetCookie() : []) {
@@ -302,7 +322,11 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
       if (/max-age=0/i.test(setCookie) || value === "") jar.delete(name);
       else jar.set(name, value);
     }
+    return res;
+  }
 
+  async function request(method: string, path: string, options: RequestOptions = {}) {
+    const res = await requestRaw(method, path, options);
     const text = await res.text();
     return { status: res.status, headers: res.headers, body: text ? (JSON.parse(text) as unknown) : null };
   }
@@ -342,5 +366,5 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
     return `__Host-commenter=${token}`;
   }
 
-  return { db, app, redis, storage, request, loginCommenter, fakeGitHub, createPost, translatePost, adminSessionCookie, jar, calls: fake.calls, revalidations };
+  return { db, app, redis, storage, request, requestRaw, loginCommenter, fakeGitHub, createPost, translatePost, adminSessionCookie, jar, calls: fake.calls, revalidations };
 }

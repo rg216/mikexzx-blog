@@ -1,0 +1,127 @@
+/*
+ * 译文编辑器里"大模型翻译"一栏：按钮 + 进度一行，下面是失败提示或生成结果。
+ * 结果里的错误 / 提醒不用 Banner：Banner 带 role=alert，是给"操作失败"用的；
+ * 结构校验是生成结果的一部分，静态列出即可（颜色只是辅助，标题文字本身说明了轻重）。
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 状态行一直渲染（读屏才会播报变化），空着的时候不能占一个弹性项：否则按钮和说明文字之间多出一份 gap。
+ * 不用 display: none / contents——前者把它移出无障碍树、后者在部分浏览器里也会，之后的播报就听不到了；
+ * 绝对定位的子元素不参与 flex 排版，也不产生 gap，仍留在无障碍树里。
+ */
+.status:empty {
+  position: absolute;
+}
+
+.note {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+.bannerActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* ---------- 生成结果 ---------- */
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  padding: var(--space-1-5) var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-secondary-background);
+  font-size: var(--font-size-subhead);
+  line-height: var(--line-height-snug);
+}
+
+.reportHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-0-5) var(--space-1-5);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.unmodified {
+  color: var(--color-success-text);
+}
+
+.modified {
+  color: var(--color-label);
+}
+
+.group {
+  padding: var(--space-1) var(--space-1-5);
+  border-radius: var(--radius-sm);
+  color: var(--color-label);
+}
+
+.errors {
+  background: var(--color-destructive-fill);
+}
+
+.warnings {
+  background: var(--color-highlight-fill);
+}
+
+.groupTitle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  font-weight: var(--font-weight-semibold);
+}
+
+.errorIcon,
+.warningIcon {
+  flex: none;
+  width: 1.25em;
+  height: 1.25em;
+  margin-top: 0.05em;
+}
+
+.errorIcon {
+  color: var(--color-destructive-text);
+}
+
+.warningIcon {
+  color: var(--color-label);
+}
+
+.issues {
+  margin-top: var(--space-0-5);
+  padding-left: var(--space-4);
+  list-style: disc;
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-footnote);
+}

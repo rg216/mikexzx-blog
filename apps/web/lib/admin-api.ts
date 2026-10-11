@@ -26,9 +26,17 @@ import {
   type Locale,
   type PostCreateInput,
   type PostUpdateInput,
+  type TranslationConfig,
+  translationConfigSchema,
+  type TranslationGenerateInput,
   type TranslationInput,
+  type TranslationStreamEvent,
+  translationStreamEventSchema,
+  type TranslationTitleResult,
+  translationTitleResultSchema,
 } from "@blog/shared";
 import { z } from "zod";
+import { LineDecodeError, readLines } from "./ndjson";
 
 /*
  * 管理接口客户端。只在浏览器里运行（管理页面是 Client Components）。
@@ -109,6 +117,13 @@ type JsonClientOptions = {
   basePath?: string;
 };
 
+type RequestOptions = {
+  /** 中止请求（"停止生成"）。中止时原样抛出 fetch 的 AbortError，不包装成 network_error：那不是故障 */
+  signal?: AbortSignal;
+  /** 期望的响应类型，默认 JSON */
+  accept?: string;
+};
+
 export const LOGIN_PATH = "/admin/login";
 
 export function redirectToLogin(): void {
@@ -127,24 +142,56 @@ const imageListSchema = z.array(adminImageSchema);
 const folderListSchema = z.array(mediaFolderSchema);
 const deletedSchema = z.object({ deleted: z.int().nonnegative() });
 
+/** 一段正文翻译完成：done 事件（stopReason 不一定是 end_turn，由调用方判断成败，见 translation-generation.ts） */
+export type TranslationSegmentResult = Extract<TranslationStreamEvent, { type: "done" }>;
+
+export type StreamSegmentOptions = {
+  /** 第几段（按 splitMarkdownForTranslation(原文) 计算，从 0 开始） */
+  index: number;
+  /** 编辑器加载文章时拿到的原文指纹；原文之后改过的话 API 返回 409 */
+  sourceHash: string;
+  signal?: AbortSignal;
+  /** 每收到一小段译文调用一次（实时显示） */
+  onDelta?: (text: string) => void;
+  /** 收到心跳（API 那边一段时间没有输出：模型还在思考）时调用；心跳不带内容 */
+  onPing?: () => void;
+};
+
+const streamBroken = "连接中断，这一段没有翻译完";
+
+/** 解析 NDJSON 的一行：不是 JSON、或不符合 @blog/shared 的事件约定，都是 bad_response。纯函数，便于测试 */
+export function parseTranslationStreamLine(line: string, status = 200): TranslationStreamEvent {
+  let json: unknown;
+  try {
+    json = JSON.parse(line);
+  } catch (error) {
+    throw new AdminApiError(status, "bad_response", fallbackMessages.bad_response, [], { cause: error });
+  }
+  const parsed = translationStreamEventSchema.safeParse(json);
+  if (!parsed.success) throw new AdminApiError(status, "bad_response", fallbackMessages.bad_response, [], { cause: parsed.error });
+  return parsed.data;
+}
+
 /**
  * 后台各接口共用的 JSON 客户端：发请求、把错误响应转成 AdminApiError、用 schema 校验响应。
  * 管理文章（createAdminApi）和登录 / Passkey（lib/auth-api.ts）都基于它。
  */
 export function createJsonClient({ fetch: fetchImpl = (...args) => fetch(...args), onUnauthorized = redirectToLogin, basePath = "/api/admin" }: JsonClientOptions = {}) {
-  async function request(method: string, path: string, body?: unknown): Promise<Response> {
+  async function request(method: string, path: string, body?: unknown, { signal, accept = "application/json" }: RequestOptions = {}): Promise<Response> {
     const init: RequestInit = {
       method,
       // 同源请求默认就会带 cookie，这里写明，防止以后有人改成跨域地址时悄悄丢了鉴权
       credentials: "same-origin",
-      headers: body === undefined ? { accept: "application/json" } : { accept: "application/json", "content-type": "application/json" },
+      headers: body === undefined ? { accept } : { accept, "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
     };
 
     let res: Response;
     try {
       res = await fetchImpl(`${basePath}${path}`, init);
     } catch (error) {
+      if (signal?.aborted) throw error;
       throw new AdminApiError(0, "network_error", fallbackMessages.network_error, [], { cause: error });
     }
 
@@ -210,6 +257,53 @@ export function createAdminApi(options: JsonClientOptions = {}) {
 
     async deleteTranslation(postId: number, locale: Locale): Promise<void> {
       await request("DELETE", `/posts/${postId}/translations/${locale}`);
+    },
+
+    /*
+     * 大模型翻译（v5.5）。只有作者在后台点按钮才会调用；生成的结果先进编辑器，保存（saveTranslation）后才对读者可见。
+     */
+    async getTranslationConfig(): Promise<TranslationConfig> {
+      return parseJson(await request("GET", "/translation/config"), translationConfigSchema);
+    },
+
+    /** 生成标题：一次普通的 JSON 请求（标题很短，不流式） */
+    async generateTranslationTitle(postId: number, locale: Locale, sourceHash: string, signal?: AbortSignal): Promise<TranslationTitleResult> {
+      const input: TranslationGenerateInput = { part: "title", sourceHash };
+      const res = await request("POST", `/posts/${postId}/translations/${locale}/generate`, input, { signal });
+      return parseJson(res, translationTitleResultSchema);
+    },
+
+    /**
+     * 生成正文的一段：响应是 NDJSON 流，若干 delta 之后以 done 或 error 结束。
+     *   - done：返回它（拒答、截断也是 done，stopReason 不同）
+     *   - error：抛 AdminApiError（错误码来自事件）
+     *   - 流在 done / error 之前断了：network_error——半段译文不能当成整段用
+     *   - signal 中止：原样抛出 AbortError
+     * 流开始之前的错误（401、404、409、429、503…）是普通的 JSON 错误响应，和其他接口一样处理。
+     */
+    async streamTranslationSegment(postId: number, locale: Locale, { index, sourceHash, signal, onDelta, onPing }: StreamSegmentOptions): Promise<TranslationSegmentResult> {
+      const input: TranslationGenerateInput = { part: "body", index, sourceHash };
+      const res = await request("POST", `/posts/${postId}/translations/${locale}/generate`, input, { signal, accept: "application/x-ndjson" });
+      if (!res.body) throw new AdminApiError(res.status, "bad_response", fallbackMessages.bad_response);
+      try {
+        for await (const line of readLines(res.body)) {
+          const event = parseTranslationStreamLine(line, res.status);
+          // ping 只是让连接保持有数据，不是内容
+          if (event.type === "ping") onPing?.();
+          else if (event.type === "delta") onDelta?.(event.text);
+          // 提前返回会结束 readLines，它负责取消剩下的流
+          else if (event.type === "done") return event;
+          else throw new AdminApiError(res.status, event.code, event.message || fallbackMessages[event.code]);
+        }
+      } catch (error) {
+        if (error instanceof AdminApiError) throw error;
+        // 读响应体时被中止：读取会以 AbortError 失败
+        if (signal?.aborted) throw error;
+        if (error instanceof LineDecodeError) throw new AdminApiError(res.status, "bad_response", fallbackMessages.bad_response, [], { cause: error });
+        throw new AdminApiError(0, "network_error", streamBroken, [], { cause: error });
+      }
+      // 流正常结束却没有 done：服务端函数被掐断（超时）之类，这一段不完整
+      throw new AdminApiError(res.status, "network_error", streamBroken);
     },
 
     /** 申请上传一张图片：拿到预签名 URL（见 lib/image-upload.ts） */

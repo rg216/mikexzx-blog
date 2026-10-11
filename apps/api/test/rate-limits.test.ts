@@ -41,3 +41,4 @@ describe("rate limit on comments", () => {
   });
 });
 
+// 大模型翻译的限流（rules.translate）见 translate-limits.test.ts：它只在请求通过校验之后才计数

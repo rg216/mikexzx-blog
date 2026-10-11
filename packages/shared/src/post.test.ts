@@ -148,8 +148,23 @@ describe("translationInputSchema", () => {
     ["a missing source hash", { title: "x", contentMd: "x" }],
     ["unknown fields such as origin", { ...input, origin: "machine" }],
     ["content over 200,000 characters", { ...input, contentMd: "x".repeat(200_001) }],
+    ["an empty generated marker", { ...input, generated: {} }],
+    ["a blank generated model", { ...input, generated: { model: "  " } }],
+    ["a generated model over 100 characters", { ...input, generated: { model: "m".repeat(101) } }],
+    ["unknown fields in generated", { ...input, generated: { model: "claude-sonnet-5-5", origin: "machine" } }],
+    ["a non-object generated marker", { ...input, generated: "claude-sonnet-5-5" }],
   ])("rejects %s", (_name, value) => {
     expect(translationInputSchema.safeParse(value).success).toBe(false);
+  });
+
+  it("leaves generated out for human translations", () => {
+    expect(translationInputSchema.parse(input)).not.toHaveProperty("generated");
+  });
+
+  it("accepts and trims the model of an unmodified machine translation", () => {
+    expect(translationInputSchema.parse({ ...input, generated: { model: " claude-sonnet-5-5 " } }).generated).toEqual({
+      model: "claude-sonnet-5-5",
+    });
   });
 });
 

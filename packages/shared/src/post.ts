@@ -154,22 +154,39 @@ export const postUpdateInputSchema = z
 export type PostUpdateInput = z.input<typeof postUpdateInputSchema>;
 
 /**
+ * 译文的长度上限（与原文相同；UTF-16 码元，标题按去掉首尾空白后计）。导出给编辑器：输入框的 maxLength、
+ * 生成译文后的超长提示（中译英字数常涨 2～3 倍，长文的机器译文可能超限）与 schema 用同一个数。
+ */
+export const TRANSLATION_TITLE_MAX_LENGTH = 200;
+export const TRANSLATION_CONTENT_MAX_LENGTH = 200_000;
+/** 机器译文记录的模型名（generated.model）的长度上限；几个模型（服务端回退）合在一起时由 combineModelNames 收进这个长度 */
+export const TRANSLATION_MODEL_MAX_LENGTH = 100;
+
+/**
  * 保存（新建或整体替换）一篇译文：PUT /admin/posts/:id/translations/:locale。
- * 摘要和搜索索引由 API 生成；origin 一律记为 human。
+ * 摘要和搜索索引由 API 生成。
  */
 export const translationInputSchema = z.strictObject({
-  title: z.string().trim().min(1).max(200),
-  contentMd: z.string().max(200_000),
+  title: z.string().trim().min(1).max(TRANSLATION_TITLE_MAX_LENGTH),
+  contentMd: z.string().max(TRANSLATION_CONTENT_MAX_LENGTH),
   /** 译文依据的原文指纹（编辑器加载文章时拿到的 AdminPost.sourceHash）：原文在此之后又改过的话，译文仍会显示为过时 */
   sourceHash: sourceHashSchema,
+  /**
+   * 带上表示"这是未经修改的机器译文"：API 存 origin = machine、model = generated.model，
+   * 并在服务端再做一次结构校验（checkTranslationStructure 有 errors 就拒绝保存）。
+   * 不带（作者手写或改过机器译文）→ origin = human、model = null。
+   */
+  generated: z.strictObject({ model: z.string().trim().min(1).max(TRANSLATION_MODEL_MAX_LENGTH) }).optional(),
 });
 export type TranslationInput = z.input<typeof translationInputSchema>;
 
 // ---------- 错误 ----------
 
+export const apiErrorCodeSchema = z.enum(["validation_error", "unauthorized", "forbidden", "not_found", "conflict", "rate_limited", "internal_error"]);
+
 export const apiErrorSchema = z.object({
   error: z.object({
-    code: z.enum(["validation_error", "unauthorized", "forbidden", "not_found", "conflict", "rate_limited", "internal_error"]),
+    code: apiErrorCodeSchema,
     message: z.string(),
     /** 校验错误的明细，字段路径 + 原因 */
     issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),

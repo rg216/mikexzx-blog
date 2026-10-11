@@ -1,6 +1,6 @@
 "use client";
 
-import { type AdminPost, type AdminTranslation, type Locale, localeInfo } from "@blog/shared";
+import { type AdminPost, type AdminTranslation, type Locale, localeInfo, TRANSLATION_CONTENT_MAX_LENGTH, TRANSLATION_TITLE_MAX_LENGTH } from "@blog/shared";
 import { ChevronLeft, Copy, ExternalLink, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useEffect, useEffectEvent, useId, useRef, useState } from "react";
@@ -18,9 +18,13 @@ import {
   buildTranslationInput,
   canTranslateTo,
   checkUntranslated,
+  decideGenerateStart,
   emptyTranslationForm,
   formFromSource,
   formFromTranslation,
+  generatedMarker,
+  generatedState,
+  generatedStateLabels,
   isTranslationDirty,
   issuesToTranslationErrors,
   needsSave,
@@ -28,6 +32,7 @@ import {
   type TranslationFormErrors,
   type TranslationFormField,
   type TranslationFormValues,
+  translationLengthProblems,
   translationSaveHint,
   translationState,
   validateTranslationForm,
@@ -39,8 +44,10 @@ import loader from "./PostEditor.module.css";
 // 工具栏、标题框、正文框的样式和文章编辑器完全相同，直接复用；分栏（多了"原文"一栏）在自己的模块里
 import editor from "./PostEditorForm.module.css";
 import styles from "./TranslationEditor.module.css";
+import { focusGenerateButtonIfLost, type GeneratedResult, TranslationGenerator } from "./TranslationGenerator";
 import { TranslationStateBadge } from "./TranslationStateBadge";
 import { useMarkdownImages } from "./useMarkdownImages";
+import { useTranslationGeneration } from "./useTranslationGeneration";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard";
 
 type LoadState =
@@ -141,7 +148,8 @@ type SaveState =
   | { kind: "saving" }
   | { kind: "saved"; at: Date }
   | { kind: "deleted" }
-  | { kind: "error"; title: string; message?: string };
+  // reloadSource：提示里带"载入最新原文"按钮（原文在本页打开后改过，机器译文要按新原文重新生成）
+  | { kind: "error"; title: string; message?: string; action?: "reloadSource" };
 
 /*
  * 窄屏三选一；宽屏左边固定是编辑框，右栏在"预览 / 原文"之间切换。
@@ -209,7 +217,33 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
   const baseline = saved ? formFromTranslation(saved) : emptyTranslationForm;
   const dirty = isTranslationDirty(baseline, values);
   const state = translationState(saved);
-  const guard = useUnsavedChangesGuard(dirty);
+
+  /*
+   * 大模型翻译。生成期间表单的值（values）不动，标题框和正文框只读、显示生成进度（shown）；
+   * 完成后才整体替换 values。停止或失败时 values 还是生成前的内容，不需要"恢复"，也不会有半篇译文被误存。
+   */
+  const generation = useTranslationGeneration();
+  const generating = generation.running;
+  const progress = generation.run.kind === "running" ? generation.run.progress : null;
+  const shown: TranslationFormValues = progress ? { title: progress.title ?? "", contentMd: progress.liveText } : values;
+  /** 最近一次生成的结果：保存时据此判断是机器译文（一字未改）还是人工译文 */
+  const [generated, setGenerated] = useState<GeneratedResult | null>(null);
+  const resultState = generatedState(values, generated);
+  // 生成过译文时，编辑器内容超出保存上限的地方（中译英字数常涨 2～3 倍），在生成结果里提前列出
+  const lengthProblems = generated ? translationLengthProblems(values) : [];
+  /** 等作者确认"替换编辑器里的内容"：resume 表示确认后是续做（失败后的重试）还是重新生成 */
+  const [confirmingGenerate, setConfirmingGenerate] = useState<{ resume: boolean } | null>(null);
+  /**
+   * 最近一次开始生成时编辑器里的内容。生成期间 values 不变，失败后编辑器又能编辑：
+   * 重试时和它比较，失败后改过就要重新确认（那次的确认只覆盖当时的内容）
+   */
+  const generationBaseRef = useRef<TranslationFormValues | null>(null);
+  const generateButtonRef = useRef<HTMLButtonElement>(null);
+  /** 生成时正文框是否跟着新内容滚到底：作者往上翻着看时不打扰 */
+  const followStream = useRef(true);
+
+  // 生成中离开页面也要确认：确认后中止生成（组件卸载时 useTranslationGeneration 也会中止）
+  const guard = useUnsavedChangesGuard(dirty || generating);
 
   function setField<K extends TranslationFormField>(field: K, value: TranslationFormValues[K]) {
     setValues((prev) => ({ ...prev, [field]: value }));
@@ -236,7 +270,8 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
   }
 
   async function save({ allowUntranslated = false } = {}) {
-    if (savingRef.current || deletingRef.current) return;
+    // 生成中不能保存：表单里还是生成前的内容，作者看到的却是生成中的译文
+    if (savingRef.current || deletingRef.current || generating) return;
     if (images.isUploading()) {
       setSaveState({ kind: "error", title: "图片还在上传", message: "请等上传完成后再保存。" });
       return;
@@ -264,6 +299,17 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
         return;
       }
     }
+    // 一字未改的机器译文带上 generated 标记（存为 machine）。结构校验没通过的不发请求：
+    // 服务端会用同一个 checkTranslationStructure 再查一遍并拒绝，提前拦下，说明怎么办
+    const marker = generatedMarker(values, generated);
+    if (marker && generated && generated.check.errors.length > 0) {
+      fail(
+        {},
+        "机器译文未通过结构校验",
+        "代码、链接或图片地址与原文不一致，不能作为机器译文保存。按生成结果里列出的问题修正后再保存，将记为人工译文。",
+      );
+      return;
+    }
     if (!needsSave(saved, dirty, source.sourceHash)) {
       setSaveState({ kind: "saved", at: new Date() });
       return;
@@ -274,16 +320,28 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
     setErrors({});
     setSaveState({ kind: "saving" });
     try {
-      const translation = await adminApi.saveTranslation(source.id, locale, buildTranslationInput(values, source.sourceHash));
+      const translation = await adminApi.saveTranslation(source.id, locale, buildTranslationInput(values, source.sourceHash, marker));
       setSaved(translation);
       // 保存期间没有继续输入：换成服务端返回的版本（标题可能被去掉首尾空格）；否则保留新输入，它们仍未保存
       setValues((current) => (current === sent ? formFromTranslation(translation) : current));
+      // 已经存成人工译文：生成结果的提示（"已修改，保存后记为人工译文"）不再成立，清掉；机器译文保留生成结果和用量
+      if (!marker) setGenerated(null);
+      // "已停止…""生成失败…"这类提示说的是保存之前的事，保存成功后清掉（进行中的生成不受影响，保存本来就被禁止）
+      generation.reset();
       setSaveState({ kind: "saved", at: new Date() });
     } catch (error) {
       if (!(error instanceof AdminApiError)) {
         fail({}, "保存失败", "出现了意外错误，请稍后重试");
       } else if (error.code === "validation_error") {
         fail(issuesToTranslationErrors(error.issues), "保存失败：有字段未通过校验", error.issues.length ? undefined : error.message);
+      } else if (error.code === "conflict") {
+        // 只有机器译文会这样：服务端要求它对着当前原文生成（人工译文按旧原文保存是允许的，会显示为过时）
+        setSaveState({
+          kind: "error",
+          title: "原文已更新",
+          message: "原文在本页打开之后被修改过，这篇机器译文是按旧原文生成的。载入最新原文后重新生成；或者修改译文，按人工译文保存。",
+          action: "reloadSource",
+        });
       } else if (error.code === "not_found") {
         fail({}, "保存失败：这篇文章已不存在", "它可能已在其他地方被删除。复制好译文后再离开本页。");
       } else if (error.code === "unauthorized") {
@@ -315,6 +373,7 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
     // 留在本页、回到"还没有译文"的状态：可以马上重新开始，也能看到"复制原文"入口
     setSaved(null);
     setValues(emptyTranslationForm);
+    setGenerated(null);
     setErrors({});
     setSaveState({ kind: "deleted" });
     deletingRef.current = false;
@@ -328,11 +387,18 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
   const sourceChangedSinceLoad = saved !== null && saved.outdated && saved.sourceHash === source.sourceHash;
 
   async function reloadSource() {
-    if (refreshingSource) return;
+    if (refreshingSource || generating) return;
     setRefreshingSource(true);
     try {
-      setSource(await adminApi.getPost(source.id));
+      const next = await adminApi.getPost(source.id);
+      setSource(next);
       setSaveState({ kind: "idle" });
+      if (next.sourceHash !== source.sourceHash) {
+        // 之前生成的译文是对着旧原文的：不再算"未经修改的机器译文"（否则会以新原文的指纹存成机器译文），
+        // 失败时保留的已完成部分也作废
+        setGenerated(null);
+        generation.reset();
+      }
     } catch (error) {
       setSaveState({ kind: "error", title: "载入最新原文失败", message: error instanceof AdminApiError ? error.message : "出现了意外错误，请稍后重试" });
     } finally {
@@ -340,11 +406,52 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
     }
   }
 
-  // ⌘S / Ctrl+S：保存。对话框开着（删除确认、"还是原文"确认）时不保存，只拦下浏览器的"保存网页"
+  /**
+   * "生成译文"和失败后的"重试"走同一道关口（decideGenerateStart）：图片上传中不开始；
+   * 会替换掉作者没确认过的内容时先确认——重试也一样，失败之后编辑器是可以编辑的
+   */
+  function requestGenerate({ resume = false } = {}) {
+    if (generating || savingRef.current || deletingRef.current) return;
+    const decision = decideGenerateStart({ uploading: images.isUploading(), values, retryBase: resume ? generationBaseRef.current : undefined });
+    if (decision === "blocked_uploading") {
+      setSaveState({ kind: "error", title: "图片还在上传", message: "请等上传完成后再生成译文。" });
+      return;
+    }
+    if (decision === "confirm") {
+      setConfirmingGenerate({ resume });
+      return;
+    }
+    void generate({ resume });
+  }
+
+  /** resume：上次失败后"重试"，从失败的那一步继续 */
+  async function generate({ resume = false } = {}) {
+    generationBaseRef.current = values;
+    setErrors({});
+    setSaveState((prev) => (prev.kind === "error" ? { kind: "idle" } : prev));
+    followStream.current = true;
+    const result = await generation.start(
+      { postId: source.id, locale, title: source.title, contentMd: source.contentMd, sourceHash: source.sourceHash },
+      { resume },
+    );
+    if (!result) return;
+    const next: TranslationFormValues = { title: result.title, contentMd: result.contentMd };
+    setValues(next);
+    setGenerated({ ...next, model: result.model, usage: result.usage, check: result.check });
+  }
+
+  // 生成时正文框跟着新内容滚到底（作者往上翻了就不跟）
+  const liveText = progress?.liveText;
+  useEffect(() => {
+    const textarea = contentRef.current;
+    if (liveText !== undefined && textarea && followStream.current) textarea.scrollTop = textarea.scrollHeight;
+  }, [liveText]);
+
+  // ⌘S / Ctrl+S：保存。对话框开着（删除确认、"还是原文"确认）或生成中时不保存，只拦下浏览器的"保存网页"
   const onShortcut = useEffectEvent((event: KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "s") {
       event.preventDefault();
-      if (confirmingDelete || deleting || confirmingUntranslated !== null) return;
+      if (confirmingDelete || deleting || confirmingUntranslated !== null || confirmingGenerate !== null || generating) return;
       void save();
     }
   });
@@ -360,8 +467,9 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
     void save();
   }
 
-  const statusText =
-    saveState.kind === "saving"
+  const baseStatusText = generating
+    ? "正在生成译文…"
+    : saveState.kind === "saving"
       ? "正在保存…"
       : saveState.kind === "error"
         ? "保存失败"
@@ -372,6 +480,8 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
             : saveState.kind === "deleted"
               ? "已删除译文"
               : "";
+  // 生成过译文时，状态行同时说明保存后记为机器译文还是人工译文
+  const statusText = !generating && resultState !== "none" ? [baseStatusText, generatedStateLabels[resultState]].filter(Boolean).join(" · ") : baseStatusText;
 
   const isPublished = source.status === "published";
   const formEmpty = values.title === "" && values.contentMd === "";
@@ -401,21 +511,38 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
                 iconOnly
                 aria-label="删除译文"
                 title="删除译文"
-                // 保存中不能删除：两个请求同时进行，结果取决于谁后落库
-                disabled={saveState.kind === "saving"}
+                // 保存中不能删除：两个请求同时进行，结果取决于谁后落库；生成中也不能
+                disabled={saveState.kind === "saving" || generating}
                 onClick={() => setConfirmingDelete(true)}
               >
                 <Trash2 aria-hidden="true" />
               </Button>
             )}
-            <Button type="submit" variant="primary" busy={saveState.kind === "saving"} aria-keyshortcuts="Meta+S Control+S" title="保存（⌘S）">
+            <Button
+              type="submit"
+              variant="primary"
+              busy={saveState.kind === "saving"}
+              disabled={generating}
+              aria-keyshortcuts="Meta+S Control+S"
+              title={generating ? "生成中不能保存" : "保存（⌘S）"}
+            >
               保存
             </Button>
           </div>
         </div>
 
         {saveState.kind === "error" && (
-          <Banner title={saveState.title} className={editor.banner}>
+          <Banner
+            title={saveState.title}
+            className={editor.banner}
+            action={
+              saveState.action === "reloadSource" ? (
+                <Button variant="secondary" busy={refreshingSource} disabled={generating} onClick={() => void reloadSource()}>
+                  载入最新原文
+                </Button>
+              ) : undefined
+            }
+          >
             {saveState.message}
           </Banner>
         )}
@@ -448,7 +575,7 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
               // 本页显示的原文已经不是最新的：不显示加载时的"最近一次更新"时间（会早于译文的保存时间，读起来自相矛盾）
               <p className={styles.outdated}>
                 原文在本页打开之后又被修改过，译文是按打开时的原文保存的。载入最新原文、对照修改后再保存，即标记为已同步。{" "}
-                <Button variant="secondary" busy={refreshingSource} onClick={() => void reloadSource()}>
+                <Button variant="secondary" busy={refreshingSource} disabled={generating} onClick={() => void reloadSource()}>
                   载入最新原文
                 </Button>
               </p>
@@ -459,7 +586,20 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
               </p>
             ))}
 
-          {!saved && formEmpty && (
+          <TranslationGenerator
+            generation={generation}
+            result={generated}
+            resultState={resultState}
+            lengthProblems={lengthProblems}
+            busy={saveState.kind === "saving" || deleting || refreshingSource}
+            generateButtonRef={generateButtonRef}
+            onGenerate={() => requestGenerate()}
+            onRetry={() => requestGenerate({ resume: true })}
+            onReloadSource={reloadSource}
+            reloadingSource={refreshingSource}
+          />
+
+          {!saved && formEmpty && !generating && (
             <div className={styles.copySource}>
               <Button variant="secondary" onClick={() => setValues(formFromSource(source))}>
                 <Copy aria-hidden="true" />
@@ -473,7 +613,8 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
             ref={titleRef}
             label="标题"
             rows={1}
-            value={values.title}
+            value={shown.title}
+            readOnly={generating}
             onChange={(event) => setField("title", event.target.value.replace(/[\r\n]+/g, " "))}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.nativeEvent.isComposing) {
@@ -482,7 +623,7 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
               }
             }}
             error={errors.title}
-            maxLength={200}
+            maxLength={TRANSLATION_TITLE_MAX_LENGTH}
             className={editor.titleField}
             inputClassName={editor.titleInput}
             autoComplete="off"
@@ -509,16 +650,23 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
               ref={contentRef}
               label="正文"
               hint="支持 Markdown（GFM）"
-              value={values.contentMd}
+              value={shown.contentMd}
+              readOnly={generating}
               onChange={(event) => setField("contentMd", event.target.value)}
+              onScroll={(event) => {
+                if (!generating) return;
+                const textarea = event.currentTarget;
+                followStream.current = textarea.scrollHeight - textarea.scrollTop - textarea.clientHeight < 48;
+              }}
               error={errors.contentMd}
               className={editor.contentField}
-              inputClassName={editor.contentInput}
-              maxLength={200_000}
+              inputClassName={[editor.contentInput, generating && styles.generating].filter(Boolean).join(" ")}
+              maxLength={TRANSLATION_CONTENT_MAX_LENGTH}
               lang={info.tag}
-              {...images.textareaHandlers}
+              // 生成中不接受粘贴 / 拖入图片：插入的内容会在生成完成时被整体替换掉
+              {...(generating ? {} : images.textareaHandlers)}
             />
-            <MarkdownImageTools images={images} />
+            {!generating && <MarkdownImageTools images={images} />}
           </div>
 
           <section className={`${editor.pane} ${styles.sidePane}`} aria-labelledby={sideHeadingId}>
@@ -542,7 +690,8 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
               </div>
             ) : (
               <div className={editor.previewBody} lang={info.tag}>
-                <MarkdownPreview markdown={values.contentMd} locale={locale} />
+                {/* 生成中只预览已完成的段：半段可能有没闭合的代码块，渲染出来会一跳一跳的 */}
+                <MarkdownPreview markdown={progress ? progress.completedText : values.contentMd} locale={locale} />
               </div>
             )}
           </section>
@@ -580,15 +729,38 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
       </ConfirmDialog>
 
       <ConfirmDialog
+        open={confirmingGenerate !== null}
+        title="用生成的译文替换编辑器里的内容？"
+        confirmLabel={confirmingGenerate?.resume ? "继续生成并替换" : "生成并替换"}
+        // 替换的是人工译文时用红色按钮：作者的劳动成果，虽然保存之前不影响线上，也要多看一眼
+        destructive={saved?.origin === "human"}
+        onConfirm={() => {
+          const resume = confirmingGenerate?.resume ?? false;
+          setConfirmingGenerate(null);
+          void generate({ resume });
+          // 对话框关闭后焦点要还给打开它的按钮；重试按钮随失败提示一起消失了，就交给"停止"
+          focusGenerateButtonIfLost(generateButtonRef);
+        }}
+        onCancel={() => setConfirmingGenerate(null)}
+      >
+        {confirmingGenerate?.resume ? "生成失败之后，编辑器里的内容又改过。" : ""}
+        {saved?.origin === "human" ? "当前是人工译文。" : ""}
+        {confirmingGenerate?.resume ? "继续生成完成后" : "生成的译文"}会替换编辑器里的标题和正文（保存之前不影响线上）{dirty ? "，未保存的修改也会被替换" : ""}。
+      </ConfirmDialog>
+
+      <ConfirmDialog
         open={guard.pendingHref !== null}
-        title="放弃未保存的更改？"
-        confirmLabel="放弃更改"
+        title={generating ? "中止生成并离开？" : "放弃未保存的更改？"}
+        confirmLabel={generating ? "中止并离开" : "放弃更改"}
         cancelLabel="继续编辑"
         destructive
-        onConfirm={guard.confirmLeave}
+        onConfirm={() => {
+          generation.abort();
+          guard.confirmLeave();
+        }}
         onCancel={guard.cancelLeave}
       >
-        离开后，这次的修改将会丢失。
+        {generating ? `正在生成译文，离开会中止生成${dirty ? "，未保存的修改也会丢失" : ""}。` : "离开后，这次的修改将会丢失。"}
       </ConfirmDialog>
     </>
   );

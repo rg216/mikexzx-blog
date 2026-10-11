@@ -36,3 +36,13 @@ export function createRedisProvider(url: string): RedisProvider {
     return connecting;
   };
 }
+
+/** Redis 现在能不能用（连得上、PING 有回应）。只读，不改任何数据；给"现在能不能生成译文"这类状态查询用 */
+export async function redisReachable(redis: RedisProvider): Promise<boolean> {
+  try {
+    await (await redis()).ping();
+    return true;
+  } catch {
+    return false;
+  }
+}

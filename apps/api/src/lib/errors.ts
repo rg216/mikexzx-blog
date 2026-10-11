@@ -1,7 +1,7 @@
 import type { ApiError, ApiErrorCode } from "@blog/shared";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
-type Issue = NonNullable<ApiError["error"]["issues"]>[number];
+export type Issue = NonNullable<ApiError["error"]["issues"]>[number];
 
 export function errorBody(code: ApiErrorCode, message: string, issues?: Issue[]): ApiError {
   return { error: issues ? { code, message, issues } : { code, message } };
@@ -13,11 +13,14 @@ export class HttpError extends Error {
   // 那不是"可擦除"语法，Node 的原生 type stripping 跑不了（tsconfig 的 erasableSyntaxOnly 会拦住）
   readonly status: ContentfulStatusCode;
   readonly code: ApiErrorCode;
+  /** 校验错误的明细（如机器译文的结构问题），原样放进响应的 issues */
+  readonly issues: Issue[] | undefined;
 
-  constructor(status: ContentfulStatusCode, code: ApiErrorCode, message: string) {
+  constructor(status: ContentfulStatusCode, code: ApiErrorCode, message: string, issues?: Issue[]) {
     super(message);
     this.status = status;
     this.code = code;
+    this.issues = issues;
   }
 }
 

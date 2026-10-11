@@ -7,6 +7,7 @@ import { createDb } from "./db/client.ts";
 import { createGitHub } from "./auth/github.ts";
 import { githubConfigFrom, loadEnv, storageConfigFrom } from "./env.ts";
 import { createRevalidator } from "./lib/revalidate.ts";
+import { createAnthropicTranslator } from "./lib/translator.ts";
 import { createRedisProvider } from "./redis.ts";
 import { createObjectStorage } from "./storage.ts";
 import type { AuthEnv } from "./middleware/auth.ts";
@@ -32,6 +33,7 @@ const app = createApp({
   redis: env.REDIS_URL ? createRedisProvider(env.REDIS_URL) : null,
   storage: storage ? createObjectStorage(storage) : null,
   github: github ? createGitHub(github) : null,
+  translator: env.ANTHROPIC_API_KEY ? createAnthropicTranslator(env.ANTHROPIC_API_KEY) : null,
   ...(env.CRON_SECRET ? { cronSecret: env.CRON_SECRET } : {}),
   logRequests: true,
 }) satisfies Hono<AuthEnv>;

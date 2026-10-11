@@ -1,4 +1,4 @@
-import { adminPostSchema, adminTranslationSchema } from "@blog/shared";
+import { adminPostSchema, adminTranslationSchema, apiErrorSchema } from "@blog/shared";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -221,5 +221,89 @@ describe("revalidating translated pages", () => {
     await put(id, "zh", { title: "x", contentMd: "x", sourceHash: (await getPost(id)).sourceHash });
     await request("DELETE", `/admin/posts/${id}/translations/en`);
     expect(revalidations).toEqual([]);
+  });
+});
+
+describe("saving machine translations (v5.5)", () => {
+  const source = "介绍见[文档](https://hono.dev)。\n\n![架构图](https://img.test/a.png#small)\n\n```ts\nconst app = new Hono();\n```\n";
+  const faithful = "See the [docs](https://hono.dev).\n\n![Architecture](https://img.test/a.png#small)\n\n```ts\nconst app = new Hono();\n```\n";
+
+  it("stores an unedited machine translation as origin machine with the serving model", async () => {
+    const { id } = await createPost({ slug: "a", contentMd: source });
+    const { sourceHash: hash } = await getPost(id);
+    const res = await put(id, "en", { title: "Intro", contentMd: faithful, sourceHash: hash, generated: { model: "claude-sonnet-5-5" } });
+    expect(res.status).toBe(201);
+    expect(adminTranslationSchema.parse(res.body)).toMatchObject({ origin: "machine", model: "claude-sonnet-5-5" });
+    const [row] = await db.select().from(postTranslations).where(eq(postTranslations.postId, id));
+    expect(row).toMatchObject({ origin: "machine", model: "claude-sonnet-5-5" });
+
+    // 之后作者改过再保存（不带 generated）→ 人工译文，model 清空
+    const edited = await put(id, "en", { title: "Intro", contentMd: `${faithful}\nEdited.`, sourceHash: hash });
+    expect(edited.status).toBe(200);
+    expect(adminTranslationSchema.parse(edited.body)).toMatchObject({ origin: "human", model: null });
+  });
+
+  it("refuses a machine translation whose structure differs from the source, listing every problem, and saves nothing", async () => {
+    const { id } = await createPost({ slug: "a", contentMd: source });
+    const { sourceHash: hash } = await getPost(id);
+    const broken = "See the [docs](https://hono.dev/ja).\n\n![Architecture](https://img.test/a.png)\n\n```ts\nconst app = new Hono() // translated\n```\n";
+    const res = await put(id, "en", { title: "Intro", contentMd: broken, sourceHash: hash, generated: { model: "claude-sonnet-5-5" } });
+    expect(res.status).toBe(400);
+    const { error } = apiErrorSchema.parse(res.body);
+    expect(error.code).toBe("validation_error");
+    expect(error.message).toContain("机器译文的结构与原文不一致");
+    const messages = (error.issues ?? []).map((issue) => issue.message);
+    expect(error.issues?.every((issue) => issue.path === "contentMd")).toBe(true);
+    expect(messages.some((m) => m.includes("代码块的内容被改动"))).toBe(true);
+    // 方向要对：缺的是原文的地址，多的是译文的地址
+    expect(messages).toContain("译文缺少图片（或图片地址被改动）：https://img.test/a.png#small");
+    expect(messages).toContain("译文多出图片地址：https://img.test/a.png");
+    expect(messages).toContain("译文缺少链接（或链接地址被改动）：https://hono.dev");
+    expect(messages).toContain("译文多出链接地址：https://hono.dev/ja");
+    expect(await db.select().from(postTranslations)).toHaveLength(0);
+  });
+
+  it("refuses (409) a machine translation made for an older version of the source, but still saves a human one as outdated", async () => {
+    const { id } = await createPost({ slug: "a", contentMd: source });
+    const { sourceHash: oldHash } = await getPost(id);
+    // 编辑器打开之后，原文在另一个标签页里改了一个链接地址
+    await request("PATCH", `/admin/posts/${id}`, { body: { contentMd: source.replace("https://hono.dev", "https://hono.dev/docs") } });
+
+    const machine = await put(id, "en", { title: "Intro", contentMd: faithful, sourceHash: oldHash, generated: { model: "claude-sonnet-5-5" } });
+    expect(machine.status).toBe(409);
+    expect(machine.body).toEqual({ error: { code: "conflict", message: "原文已更新，请载入最新原文后重新生成" } });
+    expect(await db.select().from(postTranslations)).toHaveLength(0);
+
+    const human = await put(id, "en", { title: "Intro", contentMd: faithful, sourceHash: oldHash });
+    expect(human.status).toBe(201);
+    expect(adminTranslationSchema.parse(human.body)).toMatchObject({ origin: "human", sourceHash: oldHash, outdated: true });
+  });
+
+  it("lets the author save the same text as a human translation", async () => {
+    const { id } = await createPost({ slug: "a", contentMd: source });
+    const { sourceHash: hash } = await getPost(id);
+    const res = await put(id, "en", { title: "Intro", contentMd: "No code, no links.", sourceHash: hash });
+    expect(res.status).toBe(201);
+    expect(adminTranslationSchema.parse(res.body)).toMatchObject({ origin: "human", model: null });
+  });
+
+  it("does not block machine translations on warnings (e.g. a merged paragraph)", async () => {
+    const { id } = await createPost({ slug: "a", contentMd: "第一段。\n\n第二段。\n\n第三段。\n\n第四段。" });
+    const { sourceHash: hash } = await getPost(id);
+    const res = await put(id, "ja", { title: "T", contentMd: "第一段。第二段。第三段。第四段。", sourceHash: hash, generated: { model: "m" } });
+    expect(res.status).toBe(201);
+    expect(adminTranslationSchema.parse(res.body)).toMatchObject({ origin: "machine", model: "m" });
+  });
+});
+
+describe("LLM translation without ANTHROPIC_API_KEY", () => {
+  it("reports translation as unavailable and answers generate requests with 503", async () => {
+    expect((await request("GET", "/admin/translation/config")).body).toEqual({ available: false, model: "claude-sonnet-5-5", reason: "not_configured" });
+    const { id } = await createPost({ slug: "a" });
+    const res = await request("POST", `/admin/posts/${id}/translations/en/generate`, {
+      body: { part: "title", sourceHash: (await getPost(id)).sourceHash },
+    });
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: { code: "internal_error", message: "翻译功能未启用（服务器需要设置 ANTHROPIC_API_KEY 和 REDIS_URL）" } });
   });
 });
