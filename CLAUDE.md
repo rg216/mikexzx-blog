@@ -209,6 +209,15 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - [x] v4c 评论（API 项目设 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`）
 - [x] v4.5 多语言框架（见"多语言"）：中英日，`/en` `/ja` 前缀、界面字典、hreflang、`<html lang>`、译文数据结构、后台手工编辑译文（上线前：前端项目设 `SITE_URL`）
   - 上线顺序（缓存标签改成按语言区分、前端的 schema 要求 API 返回 `locale` 等新字段，两个项目不能同时部署）：① Neon 执行迁移 0008（API 读 `posts.source_locale`，先部署 API 会全部报错）② 部署 API，确认 `GET /posts?locale=en` 的每项都带 `locale` ③ 再部署（或重新部署）前端——它构建时请求 API；如果前端的自动部署抢先跑了、预渲染时报 zod / bad response 错误，API 上线后重新部署即可。前后交替的一小时内旧前端的页面不会被新标签失效，靠一小时的定时刷新兜底
-- [ ] v5 工程化：Docker 镜像、GitHub Actions、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）
+- [ ] CI（v5 里最小的一块，提前做）：GitHub Actions 在每次推送 main 和每个 PR 上跑 lint、类型检查、全部测试（`.github/workflows/ci.yml`，服务用和本地相同的 docker compose 起）
+- [ ] v4.6 内容浏览：
+  - 标签页 `/tags/<slug>`（各语言版本、hreflang；某语言下没有可见文章时 404，也不出现在该语言的标签列表里）与 `/tags` 总览；文章页、侧栏的标签改成链接
+  - 头图：文章可选一张媒体库图片，用于文章页顶部、列表卡片、`og:image`
+  - 归档页 `/archive`：按年、月分组的全部文章
+  - 搜索页筛选：多个标签、时间范围，可以不输入关键词只按条件浏览（组合条件只放在不被收录的搜索页里，不生成可收录的组合网址）
+  - 分页：列表类页面（首页、标签页）翻页
+  - 改标签 slug 时提示"旧网址会失效"，不做跳转
+  - 做完先停下讨论，再做 v5 的其余部分
+- [ ] v5 工程化：Docker 镜像、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）
 - [x] v5.5 大模型翻译（见"多语言"）：译文编辑页手动点击生成（Sonnet 5.5，分段流式、提示缓存），作者过目后保存；结构校验，未修改的机器译文记为 machine（上线前：API 项目设 `ANTHROPIC_API_KEY`（还要有 `REDIS_URL`），没设之前生成按钮是禁用的；Anthropic Console 设每月花费上限；首次部署后在函数详情里确认默认 Max Duration 是 300 秒（未核实的假设，见"函数时长与代理"）、长段落经 `/api` 代理不被掐断）
 - [ ] v6 收款：**暂缓，方案待定**。Stripe 不可用：Stripe 日本不允许以个人名义接受捐赠。需要先确定收款场景（打赏 / 付费文章 / 订阅）和收款主体，再选服务；无论用哪家，支付本身交给托管支付页，订单状态、webhook 签名校验、幂等、对账自己实现

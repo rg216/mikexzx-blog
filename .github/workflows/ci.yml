@@ -1,0 +1,42 @@
+# 每次推送到 main 和每个 PR：lint、类型检查、全部测试。
+# API 测试连真实的 Postgres / Redis / 对象存储（不 mock），所以用和本地一样的 docker compose 起这些服务。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一分支连续推送时，取消还在跑的旧检查
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # 版本和本地一致：Bun 取 package.json 的 packageManager，Node 取 .node-version
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .node-version
+
+      - name: Start Postgres, Redis and object storage
+        run: |
+          docker compose up -d --wait postgres redis storage
+          docker compose run --rm storage-init
+
+      # --frozen-lockfile：bun.lock 和 package.json 对不上就失败，而不是悄悄更新锁文件
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
