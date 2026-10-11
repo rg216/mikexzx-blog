@@ -11,8 +11,11 @@ import { defaultLocale, locales } from "@blog/shared";
  * 结果：
  *   /about → /zh/about；/ → /zh
  *   /en/about 不重写，由 [lang] = en 处理
- *   /zh/about → /zh/zh/about → 404：中文只有一套网址，不需要重定向
  *   /fr/about → /zh/fr/about → 404（中文的 404 页面）
+ *
+ * /zh/… 是内部路径，但不能指望它自然 404：Vercel 把预渲染的页面当作静态文件，在 rewrites 之前就匹配了，
+ * /zh/about 会直接返回 200（本地 next start 则是重写成 /zh/zh/about → 404），同一页面出现两个网址。
+ * 所以显式重定向（308）到不带前缀的网址：redirects 只匹配访客请求的网址，不影响上面重写出来的内部路径。
  */
 
 /** 不属于前台页面的路径前缀：后台、API 代理、API 回调、Next 内部文件 */
@@ -40,5 +43,15 @@ export function defaultLocaleRewrites(): Rewrite[] {
     // "/:path(…)" 要求 / 后面至少有内容才能稳定匹配，根路径单独写一条
     { source: "/", destination: `/${defaultLocale}` },
     { source: `/:path(${defaultLocalePathPattern()})`, destination: `/${defaultLocale}/:path` },
+  ];
+}
+
+export type Redirect = { source: string; destination: string; permanent: true };
+
+/** next.config.ts 的 redirects：带默认语言前缀的网址永久重定向到不带前缀的网址，中文只有一套网址 */
+export function defaultLocaleRedirects(): Redirect[] {
+  return [
+    { source: `/${defaultLocale}`, destination: "/", permanent: true },
+    { source: `/${defaultLocale}/:path*`, destination: "/:path*", permanent: true },
   ];
 }

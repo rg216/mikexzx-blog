@@ -2,7 +2,7 @@ import { modifyRouteRegex } from "next/dist/lib/redirect-status";
 import { getPathMatch } from "next/dist/shared/lib/router/utils/path-match";
 import { prepareDestination } from "next/dist/shared/lib/router/utils/prepare-destination";
 import { describe, expect, it } from "vitest";
-import { defaultLocalePathPattern, defaultLocaleRewrites } from "./locale-routing";
+import { defaultLocalePathPattern, defaultLocaleRedirects, defaultLocaleRewrites } from "./locale-routing";
 
 /*
  * 用 Next 自己的匹配函数（与 server/lib/router-utils/filesystem.js 的 buildCustomRoute 相同的参数）模拟 rewrites，
@@ -28,8 +28,6 @@ describe("default locale rewrites (as matched by Next)", () => {
     // 只是以 en 开头，不是 /en 前缀
     ["/english", "/zh/english"],
     ["/ja-guide/x", "/zh/ja-guide/x"],
-    // 中文只有一套网址：/zh/… 被重写成 /zh/zh/…，由 [...rest] 返回 404
-    ["/zh/about", "/zh/zh/about"],
     // 不支持的语言：同样落到中文的 404
     ["/fr/about", "/zh/fr/about"],
   ])("rewrites %s to %s", (pathname, target) => {
@@ -42,6 +40,37 @@ describe("default locale rewrites (as matched by Next)", () => {
       expect(rewrite(pathname)).toBeNull();
     },
   );
+});
+
+/** 同样用 Next 的匹配函数模拟 redirects，返回重定向目标（不匹配为 null） */
+function redirect(pathname: string): string | null {
+  for (const rule of defaultLocaleRedirects()) {
+    const match = getPathMatch(rule.source, { strict: true, removeUnnamedParams: true, regexModifier: (regex) => modifyRouteRegex(regex) });
+    const params = match(pathname);
+    if (!params) continue;
+    return prepareDestination({ appendParamsToQuery: false, destination: rule.destination, params, query: {} }).parsedDestination.pathname ?? null;
+  }
+  return null;
+}
+
+describe("default locale redirects (as matched by Next)", () => {
+  it.each([
+    ["/zh", "/"],
+    ["/zh/", "/"],
+    ["/zh/about", "/about"],
+    ["/zh/posts/x", "/posts/x"],
+    ["/zh/search", "/search"],
+  ])("redirects %s to %s", (pathname, target) => {
+    expect(redirect(pathname)).toBe(target);
+  });
+
+  it.each(["/", "/about", "/zhuyin", "/zh-guide/x", "/en", "/en/zh", "/ja/about", "/admin/posts/1"])("leaves %s alone", (pathname) => {
+    expect(redirect(pathname)).toBeNull();
+  });
+
+  it("is permanent and derived from the default locale", () => {
+    expect(defaultLocaleRedirects().every((rule) => rule.permanent && rule.source.startsWith("/zh"))).toBe(true);
+  });
 });
 
 describe("defaultLocalePathPattern", () => {

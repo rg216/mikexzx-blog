@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { defaultLocaleRewrites } from "./lib/locale-routing";
+import { defaultLocaleRedirects, defaultLocaleRewrites } from "./lib/locale-routing";
 
 const apiUrl = process.env.API_URL ?? "http://localhost:8787";
 
@@ -19,6 +19,10 @@ const nextConfig: NextConfig = {
    * 其后是多语言：默认语言（中文）的网址没有前缀，重写到 app/[lang] 下的 /zh/…（见 lib/locale-routing.ts）。
    * 返回数组 = afterFiles：静态文件和静态路由（/admin/*、/hooks/*）先匹配，不会被重写。
    */
+  // /zh/… 永久重定向到不带前缀的网址（原因见 lib/locale-routing.ts）
+  async redirects() {
+    return defaultLocaleRedirects();
+  },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${apiUrl}/:path*` }, ...defaultLocaleRewrites()];
   },

@@ -100,7 +100,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 
 ## 多语言（v4.5 框架；v5.5 大模型翻译）
 - 落地方式（v4.5）：
-  - 中文网址不加前缀：`next.config.ts` 的 rewrites（afterFiles）把不以 en / ja / admin / api / hooks / _next 开头的路径重写到 `/zh/…`（正则由 `lib/locale-routing.ts` 按 `locales` 生成）；`/zh/…` 因此变成 `/zh/zh/…` → 404，中文没有两套网址。不用 proxy：rewrites 静态匹配，ISR 照常命中缓存
+  - 中文网址不加前缀：`next.config.ts` 的 rewrites（afterFiles）把不以 en / ja / admin / api / hooks / _next 开头的路径重写到 `/zh/…`（正则由 `lib/locale-routing.ts` 按 `locales` 生成）；访客直接请求的 `/zh`、`/zh/…` 由 redirects 308 到不带前缀的网址，中文只有一套网址（不能指望重写成 `/zh/zh/…` 后 404：Vercel 把预渲染页面当静态文件，在 rewrites 之前就匹配了，2026-10 线上实测 `/zh/about` 返回 200）。不用 proxy：rewrites 静态匹配，ISR 照常命中缓存
   - `[lang]` 不设 `dynamicParams = false`：Next 要求路径上每一段都允许按需生成，设了会让新 slug 也 404；不支持的语言由各页面的 `requireLocale()` 返回 404
   - 网址工具 `lib/i18n/paths.ts`（`localePath` / `stripLocale` / `switchLocalePath`）；`usePathname()` 服务端是 `/zh/about`、浏览器是 `/about`，两种都要认
   - 界面字典 `lib/i18n/dictionaries/{zh,en,ja}.ts`；客户端组件经 `LocaleProvider` + `useDictionary()` 取（函数不能作为 props 传给客户端组件）。前台不显示 API 返回的中文 message，错误按原因代码查字典
