@@ -1,6 +1,6 @@
 "use client";
 
-import { type AdminTag, MAX_POST_TAGS, type Tag } from "@blog/shared";
+import { type AdminTag, MAX_POST_TAGS, type Tag, tagSourceLocale } from "@blog/shared";
 import { CircleAlert, ExternalLink, Plus, X } from "lucide-react";
 import { type KeyboardEvent, type RefObject, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -72,7 +72,8 @@ export function TagPicker({ tags, onChange, error, inputRef }: Props) {
       setLimitError(`最多 ${MAX_POST_TAGS} 个标签`);
       return;
     }
-    onChange([...tags, { slug: tag.slug, name: tag.name }]);
+    // 后台显示原文名称
+    onChange([...tags, { slug: tag.slug, name: tag.name, locale: tagSourceLocale }]);
     setQuery("");
     setLimitError(undefined);
     setAnnouncement(`已添加标签 ${tag.name}`);

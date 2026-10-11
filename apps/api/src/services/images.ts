@@ -7,8 +7,10 @@ import {
   type imageListQuerySchema,
   type imageUpdateInputSchema,
   type imageUploadRequestSchema,
+  imageKeyOf,
   imageKeysIn,
   type MediaFolder,
+  type PostCover,
   type PostImageMeta,
 } from "@blog/shared";
 import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
@@ -270,10 +272,12 @@ export async function deleteFolder(db: Db, id: number): Promise<boolean> {
  */
 export async function syncPostImages(db: Executor, postId: number): Promise<void> {
   // 总在事务里调用：同一个事务连接上的查询要一条接一条地发（不能 Promise.all，见 post-common.ts 的 Executor）
-  const original = await db.select({ contentMd: posts.contentMd }).from(posts).where(eq(posts.id, postId));
+  const original = await db.select({ contentMd: posts.contentMd, coverImage: posts.coverImage }).from(posts).where(eq(posts.id, postId));
   const translations = await db.select({ contentMd: postTranslations.contentMd }).from(postTranslations).where(eq(postTranslations.postId, postId));
   await db.delete(postImages).where(eq(postImages.postId, postId));
-  const keys = [...new Set([...original, ...translations].flatMap((row) => imageKeysIn(row.contentMd)))];
+  // 头图也算引用：媒体库里删除它同样要确认，文章页渲染时也有它的宽高
+  const coverKeys = original.map((row) => row.coverImage && imageKeyOf(row.coverImage)).filter((key): key is string => Boolean(key));
+  const keys = [...new Set([...[...original, ...translations].flatMap((row) => imageKeysIn(row.contentMd)), ...coverKeys])];
   if (keys.length === 0) return;
   const found = await db
     .select({ id: images.id })
@@ -301,6 +305,30 @@ export async function imageMetaForPost(db: Executor, postId: number): Promise<Re
     if (row.width && row.height) meta[row.key] = { width: row.width, height: row.height, variants: row.variants };
   }
   return meta;
+}
+
+/**
+ * 一批文章的头图：按地址里的 key 找媒体库记录，补上描述（alt）和宽高、尺寸版本。
+ * 媒体库里已经没有这张图（被强制删除）时不返回：存储里的文件也没了，显示出来只会是一张坏图。
+ */
+export async function coversFor(db: Executor, urls: (string | null)[]): Promise<Map<string, PostCover>> {
+  const keyOf = new Map(urls.flatMap((url) => (url ? [[url, imageKeyOf(url)] as const] : [])));
+  const keys = [...new Set([...keyOf.values()].filter((key) => key !== null))];
+  const result = new Map<string, PostCover>();
+  if (keys.length === 0) return result;
+  const rows = await db
+    .select({ key: images.key, width: images.width, height: images.height, variants: images.variants, description: images.description })
+    .from(images)
+    .where(and(inArray(images.key, keys), isNotNull(images.confirmedAt)));
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  for (const [url, key] of keyOf) {
+    const row = key ? byKey.get(key) : undefined;
+    if (!row) continue;
+    // 宽高未知（旧图片还没补全）时不给尺寸版本：前台没有宽高就不加 srcset
+    const known = row.width !== null && row.height !== null;
+    result.set(url, { url, alt: row.description, width: row.width, height: row.height, variants: known ? row.variants : [] });
+  }
+  return result;
 }
 
 // ---------- 定时任务 ----------

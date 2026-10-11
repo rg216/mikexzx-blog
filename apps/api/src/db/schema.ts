@@ -38,6 +38,8 @@ export const posts = pgTable(
     searchVector: tsvector(),
     // 原文（title / content_md）的语言（v4.5）。目前都是中文，预留以后用别的语言写原文
     sourceLocale: text().$type<Locale>().notNull().default(defaultSourceLocale),
+    // 头图（v4.6）：媒体库图片的地址，各语言共用。和正文里的图片一样存地址、按 key 识别（引用关系见 post_images）
+    coverImage: text(),
     publishedAt: timestamptz(),
     createdAt: timestamptz().notNull().defaultNow(),
     updatedAt: timestamptz()

@@ -3,8 +3,8 @@ import { searchHitSchema, searchQuerySchema } from "./search.ts";
 
 describe("searchQuerySchema", () => {
   it("trims the query and defaults to the default language", () => {
-    expect(searchQuerySchema.parse({ q: "  缓存 " })).toEqual({ q: "缓存", locale: "zh" });
-    expect(searchQuerySchema.parse({ q: "cache", locale: "en" })).toEqual({ q: "cache", locale: "en" });
+    expect(searchQuerySchema.parse({ q: "  缓存 " })).toEqual({ q: "缓存", locale: "zh", tags: [] });
+    expect(searchQuerySchema.parse({ q: "cache", locale: "en", tags: "css", from: "2026-01" })).toEqual({ q: "cache", locale: "en", tags: ["css"], from: "2026-01" });
   });
 
   it.each([{ q: "" }, { q: "   " }, { q: "x".repeat(101) }, { q: "x", locale: "fr" }])("rejects %j", (query) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pageAlternates, postAlternates } from "./alternates";
+import { pageAlternates, postAlternates, tagAlternates } from "./alternates";
 
 describe("pageAlternates", () => {
   it("links every locale and points canonical at itself", () => {
@@ -35,5 +35,18 @@ describe("postAlternates", () => {
   it("uses the source locale for x-default even when it is not the default locale", () => {
     const alternates = postAlternates({ slug: "b", locale: "ja", sourceLocale: "en", availableLocales: ["en", "ja"] });
     expect(alternates.languages).toEqual({ en: "/en/posts/b", ja: "/ja/posts/b", "x-default": "/en/posts/b" });
+  });
+});
+
+describe("tagAlternates", () => {
+  it("lists only the languages where the tag has posts, defaulting to Chinese", () => {
+    expect(tagAlternates("en", "css", ["zh", "en"])).toEqual({
+      canonical: "/en/tags/css",
+      languages: { "zh-CN": "/tags/css", en: "/en/tags/css", "x-default": "/tags/css" },
+    });
+  });
+
+  it("points x-default at the first language with posts when Chinese has none", () => {
+    expect(tagAlternates("ja", "css", ["en", "ja"]).languages).toEqual({ en: "/en/tags/css", ja: "/ja/tags/css", "x-default": "/en/tags/css" });
   });
 });

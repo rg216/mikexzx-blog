@@ -10,6 +10,14 @@ function apiBaseUrl(): string {
 }
 
 /**
+ * 数据缓存的"版本"：拼进请求头，成为缓存键的一部分（Next 的 fetch 缓存键包含请求头）。
+ * 为什么需要：Next 的 fetch 数据缓存在部署之间是保留的（Next 文档 migrating-to-cache-components）。
+ * API 的响应加了必填字段之后，新部署读到上一次部署缓存的旧响应，schema 校验会失败——页面报错，直到缓存过期。
+ * 带上部署编号，每次部署从干净的缓存开始（ISR 的页面缓存本来也是按部署的）；本地开发每次启动换一个，改了 API 不必手动清缓存。
+ */
+const CACHE_VERSION = process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? `local-${Date.now()}`;
+
+/**
  * 兜底的定时刷新（秒）：正常情况下 API 写入后会按标签通知前端立即失效（见 app/hooks/revalidate），
  * 这个时间只在通知失败时起作用——最坏情况下前台过时一小时，而不是一直等到下次部署。
  */
@@ -31,7 +39,7 @@ export async function apiGet<T extends z.ZodType>(path: string, schema: T, optio
   let res: Response;
   try {
     res = await fetch(url, {
-      headers: { accept: "application/json" },
+      headers: { accept: "application/json", "x-cache-version": CACHE_VERSION },
       // 进入 Next 的数据缓存：页面按 ISR 缓存，按标签失效，或到点后台刷新
       next: { revalidate: FALLBACK_REVALIDATE_SECONDS, tags: options.tags ?? [] },
     });

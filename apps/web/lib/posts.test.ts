@@ -1,6 +1,6 @@
 import type { PostSummary, PublicPost } from "@blog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getPublishedPost, listAllPublishedPosts, listPublishedPosts, listTags } from "./posts";
+import { getFirstPage, getPublishedPost, listAllPublishedPosts, listArchive, listPublishedPosts, listTags } from "./posts";
 
 // 这里只测前端数据层自己的职责：拼 URL、翻页、404 处理、校验响应、缓存标签。API 本身的行为由 apps/api 的测试覆盖。
 
@@ -11,6 +11,7 @@ const summary = (slug: string): PostSummary => ({
   status: "published",
   publishedAt: "2026-10-01T00:00:00.000Z",
   tags: [],
+  cover: null,
   locale: "zh",
 });
 
@@ -33,6 +34,26 @@ describe("listPublishedPosts", () => {
     fetchMock.mockResolvedValueOnce(json({ items: [summary("a")], nextCursor: "next" }));
     expect((await listPublishedPosts({ limit: 5, locale: "en" })).map((p) => p.slug)).toEqual(["a"]);
     expect(requestedUrls()).toEqual(["http://api.test/posts?limit=5&locale=en"]);
+  });
+});
+
+describe("getFirstPage / listArchive", () => {
+  it("requests the first page (optionally of one tag) and the archive, cached with the language's list tag", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ items: [summary("a")], nextCursor: "next" }))
+      .mockResolvedValueOnce(json({ items: [], nextCursor: null }))
+      .mockResolvedValueOnce(json([{ slug: "a", title: "A", publishedAt: "2026-10-01T00:00:00.000Z", locale: "en" }]));
+    expect(await getFirstPage({ locale: "en" })).toMatchObject({ nextCursor: "next" });
+    await getFirstPage({ locale: "ja", tag: "css" });
+    expect(await listArchive("en")).toHaveLength(1);
+    expect(requestedUrls()).toEqual([
+      "http://api.test/posts?limit=10&locale=en",
+      "http://api.test/posts?limit=10&locale=ja&tags=css",
+      "http://api.test/archive?locale=en",
+    ]);
+    expect(fetchMock.mock.calls.map(([, init]) => init?.next?.tags)).toEqual([["posts:en"], ["posts:ja"], ["posts:en"]]);
+    // 缓存键带着部署版本：上一次部署缓存的旧响应不会被新部署读到
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-cache-version")).toMatch(/\S/);
   });
 });
 

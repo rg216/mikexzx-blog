@@ -35,8 +35,8 @@ export function browserPath(pathname: string): string {
   return localePath(locale, path);
 }
 
-/** 切换语言时带过去的查询参数：只有作为页面状态的参数（目前只有搜索页的 q） */
-const carriedParams: Record<string, readonly string[]> = { "/search": ["q"] };
+/** 切换语言时带过去的查询参数：只有作为页面状态的参数（搜索页的关键词和筛选条件） */
+const carriedParams: Record<string, readonly string[]> = { "/search": ["q", "tags", "from", "to"] };
 
 /**
  * 同一个页面在另一种语言下的网址（切换语言菜单用）。
@@ -58,4 +58,9 @@ export function switchLocalePath(pathname: string, target: Locale, search = ""):
 /** 文章页的网址 */
 export function postPath(locale: Locale, slug: string): string {
   return localePath(locale, `/posts/${slug}`);
+}
+
+/** 标签页的网址（slug 各语言相同） */
+export function tagPath(locale: Locale, slug: string): string {
+  return localePath(locale, `/tags/${slug}`);
 }

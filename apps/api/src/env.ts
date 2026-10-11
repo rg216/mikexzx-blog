@@ -42,6 +42,8 @@ const envSchema = z.object({
    */
   ANTHROPIC_API_KEY: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
+  /** Vercel 自动注入的系统变量：这次部署来自哪个提交。/health 返回它，部署后可以确认线上已经是新版本 */
+  VERCEL_GIT_COMMIT_SHA: z.string().optional(),
 });
 
 const storageKeys = ["S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_PUBLIC_URL"] as const;

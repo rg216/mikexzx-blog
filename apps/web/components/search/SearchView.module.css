@@ -38,3 +38,117 @@
   background: var(--color-highlight-fill);
   color: inherit;
 }
+
+.feed {
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.feed[data-stale] {
+  opacity: 0.5;
+}
+
+/* ---------- 筛选器 ---------- */
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.filterGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* 标签：可切换的小块，选中的用强调色填充（aria-pressed 同时告诉读屏"已按下"） */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-target);
+  padding-inline: var(--space-1-5);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  color: var(--color-label);
+  font: inherit;
+  font-size: var(--font-size-subhead);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.chip::before {
+  content: "#";
+  content: "#" / "";
+  color: var(--color-tertiary-label);
+}
+
+/* 和主按钮同一组颜色（对比度已在 tokens.css 里核对过） */
+.chip[aria-pressed="true"] {
+  background: var(--color-button-primary);
+  color: var(--color-button-primary-label);
+}
+
+.chip[aria-pressed="true"]::before {
+  color: inherit;
+  opacity: 0.7;
+}
+
+@media (hover: hover) {
+  .chip[aria-pressed="false"]:hover {
+    background: var(--color-fill-hover);
+  }
+}
+
+.chip:focus-visible,
+.clear:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.monthRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-1-5);
+}
+
+.select {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.selectLabel {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+}
+
+.select select {
+  min-height: var(--hit-target);
+  padding-inline: var(--space-1);
+  border: 1px solid var(--color-field-border);
+  border-radius: var(--radius-md);
+  background: var(--color-field-background);
+  color: var(--color-label);
+  font: inherit;
+  font-size: var(--font-size-subhead);
+}
+
+.clear {
+  align-self: flex-start;
+  min-height: var(--hit-target);
+  padding-inline: var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--color-accent-text);
+  font: inherit;
+  font-size: var(--font-size-subhead);
+  cursor: pointer;
+}

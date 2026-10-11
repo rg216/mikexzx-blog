@@ -36,5 +36,6 @@ const app = createApp({
   translator: env.ANTHROPIC_API_KEY ? createAnthropicTranslator(env.ANTHROPIC_API_KEY) : null,
   ...(env.CRON_SECRET ? { cronSecret: env.CRON_SECRET } : {}),
   logRequests: true,
+  version: env.VERCEL_GIT_COMMIT_SHA ?? null,
 }) satisfies Hono<AuthEnv>;
 export default app;

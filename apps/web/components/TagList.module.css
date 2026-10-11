@@ -11,3 +11,18 @@
   content: "#" / ""; /* 斜杠后是替代文本：空字符串让读屏软件跳过这个装饰性的 # */
   color: var(--color-tertiary-label);
 }
+
+/* 点击区域扩到 44px 高，但不撑高这一行：上下内边距 + 等量的负外边距 */
+.link {
+  display: inline-block;
+  margin-block: calc((1lh - var(--hit-target)) / 2);
+  padding-block: calc((var(--hit-target) - 1lh) / 2);
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .link:hover {
+    color: var(--color-accent);
+  }
+}

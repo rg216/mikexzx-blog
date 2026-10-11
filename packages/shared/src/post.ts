@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { postImageMetaSchema } from "./image.ts";
+import { imageKeyOf } from "./media.ts";
 import { defaultLocale, localeSchema } from "./locale.ts";
 
 // API 的 JSON 字段统一用 camelCase（JS 惯例）；数据库列用 snake_case，由 Drizzle 负责映射。
@@ -21,6 +22,8 @@ export const tagNameSchema = z.string().trim().min(1, "标签名不能为空").m
 export const tagSchema = z.object({
   slug: slugSchema,
   name: tagNameSchema,
+  /** name 是哪种语言：公开接口给的是页面语言的译名，没有译名的旧标签退回原文名称（前台据此标 lang） */
+  locale: localeSchema,
 });
 export type Tag = z.infer<typeof tagSchema>;
 
@@ -32,6 +35,19 @@ export type TagWithCount = z.infer<typeof tagWithCountSchema>;
 
 // ---------- 输出 ----------
 
+/**
+ * 头图（可选）：媒体库里的一张图片，显示在文章页顶部、列表卡片上，也用作分享卡片（og:image）。
+ * 各语言版本共用；alt 取媒体库里的图片描述。宽高未知（旧图片还没补全）时为 null，前台不加 srcset。
+ */
+export const postCoverSchema = z.object({
+  url: z.url(),
+  alt: z.string(),
+  width: z.int().positive().nullable(),
+  height: z.int().positive().nullable(),
+  variants: z.array(z.int().positive()),
+});
+export type PostCover = z.infer<typeof postCoverSchema>;
+
 export const postSchema = z.object({
   slug: slugSchema,
   title: z.string().trim().min(1).max(200),
@@ -42,6 +58,7 @@ export const postSchema = z.object({
   /** 首次发布时间（ISO 8601）；从未发布过为 null。撤回为草稿时保留，重新发布不会改变它。 */
   publishedAt: isoDateTime.nullable(),
   tags: z.array(tagSchema),
+  cover: postCoverSchema.nullable(),
   /** 正文引用的媒体库图片（按原图 key 索引），渲染时用来加宽高和 srcset；尺寸未知的不在里面 */
   images: z.record(z.string(), postImageMetaSchema),
   /** title / contentMd / excerpt 实际是哪种语言（请求的语言没有译文时，公开接口返回原文，这里就是原文语言） */
@@ -52,6 +69,16 @@ export type Post = z.infer<typeof postSchema>;
 /** 列表项：不带正文（列表页不需要传输全文）。 */
 export const postSummarySchema = postSchema.omit({ contentMd: true, images: true });
 export type PostSummary = z.infer<typeof postSummarySchema>;
+
+/** 归档页的一项：只有标题和发布时间（一次列出全部文章，不带摘要、标签，数据量小） */
+export const archiveItemSchema = z.object({
+  slug: slugSchema,
+  title: z.string(),
+  publishedAt: isoDateTime,
+  locale: localeSchema,
+});
+export type ArchiveItem = z.infer<typeof archiveItemSchema>;
+export const archiveSchema = z.array(archiveItemSchema);
 
 /** 译文的来源：machine 由 LLM 生成（v5.5），human 是作者手工编写或修改过的 */
 export const translationOriginSchema = z.enum(["machine", "human"]);
@@ -121,12 +148,43 @@ export type PostSummaryPage = z.infer<typeof postSummaryPageSchema>;
 
 // ---------- 输入 ----------
 
-export const listPostsQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  cursor: z.string().min(1).max(200).optional(),
-  /** 列出哪种语言的文章：原文是该语言的，或者有该语言译文的 */
-  locale: localeSchema.default(defaultLocale),
-});
+/** 年月 "2026-10"：按月份筛选文章（按站点时区，见 site.ts） */
+export const yearMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "月份格式应为 YYYY-MM");
+
+/** 同时筛选的标签最多几个 */
+export const MAX_FILTER_TAGS = 10;
+
+/**
+ * 文章筛选条件（列表接口和搜索接口共用）：
+ * - tags：逗号分隔的标签 slug，文章必须同时带有所有这些标签（越选越窄，和搜索关键词之间的 AND 一致）；
+ * - from / to：发布时间所在的月份范围，两端都包含。
+ */
+export const postFilterFields = {
+  tags: z
+    .string()
+    .max(1000)
+    .optional()
+    .transform((value) => (value ? [...new Set(value.split(","))] : []))
+    .pipe(z.array(slugSchema).max(MAX_FILTER_TAGS)),
+  from: yearMonthSchema.optional(),
+  to: yearMonthSchema.optional(),
+};
+export type PostFilter = { tags: string[]; from?: string | undefined; to?: string | undefined };
+
+/** 起始月份不能晚于结束月份（"YYYY-MM" 按字符串比较就是按时间比较） */
+export const validMonthRange = (filter: { from?: string | undefined; to?: string | undefined }) =>
+  !filter.from || !filter.to || filter.from <= filter.to;
+export const MONTH_RANGE_MESSAGE = "起始月份不能晚于结束月份";
+
+export const listPostsQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+    cursor: z.string().min(1).max(200).optional(),
+    /** 列出哪种语言的文章：原文是该语言的，或者有该语言译文的 */
+    locale: localeSchema.default(defaultLocale),
+    ...postFilterFields,
+  })
+  .refine(validMonthRange, { message: MONTH_RANGE_MESSAGE, path: ["from"] });
 export type ListPostsQuery = z.infer<typeof listPostsQuerySchema>;
 
 /** 每篇文章最多的标签数 */
@@ -142,6 +200,12 @@ const postInputFields = {
   publishedAt: isoDateTime.nullable(),
   /** 标签的 slug，按显示顺序。只能引用已有的标签（在后台标签页创建），不存在的会报错 */
   tags: z.array(slugSchema).max(MAX_POST_TAGS),
+  /** 头图：媒体库图片的地址（和正文里一样按 key 识别，见 media.ts）；null 表示没有 */
+  coverImage: z
+    .url()
+    .max(2000)
+    .refine((url) => imageKeyOf(url) !== null, "头图只能选媒体库里的图片")
+    .nullable(),
 };
 
 export const postCreateInputSchema = z.strictObject({
@@ -149,6 +213,7 @@ export const postCreateInputSchema = z.strictObject({
   status: postInputFields.status.default("draft"),
   publishedAt: postInputFields.publishedAt.optional(),
   tags: postInputFields.tags.default([]),
+  coverImage: postInputFields.coverImage.default(null),
 });
 export type PostCreateInput = z.input<typeof postCreateInputSchema>;
 

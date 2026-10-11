@@ -30,6 +30,33 @@ const en: Dictionary = {
     learnMore: "Learn more",
     tags: "Tags",
     tagCount: (count) => `${count} ${plural(count, "post", "posts")}`,
+    allTags: "All tags",
+    archive: "Archive",
+    archiveLink: "Browse all posts by month",
+  },
+
+  feed: {
+    loadMore: "Load more",
+    retry: "Try again",
+    loaded: (count) => (count > 0 ? `Loaded ${count} more ${plural(count, "post", "posts")}` : "No more posts"),
+    errorTitle: "Couldn’t load more posts",
+  },
+
+  tags: {
+    title: "Tags",
+    intro: "Browse posts by topic.",
+    empty: "No tags yet.",
+    eyebrow: "Tag",
+    postCount: (count) => `${count} ${plural(count, "post", "posts")}`,
+    allTags: "All tags",
+    description: (name) => `All posts tagged “${name}”.`,
+  },
+
+  archive: {
+    title: "Archive",
+    intro: (count) => `${count} ${plural(count, "post", "posts")}, newest first.`,
+    empty: "No posts yet.",
+    monthCount: (count) => `${count} ${plural(count, "post", "posts")}`,
   },
 
   post: {
@@ -65,9 +92,20 @@ const en: Dictionary = {
     title: "Search",
     fieldLabel: "Search posts",
     placeholder: "Search posts",
-    hint: "Searches titles, post content and tags",
+    hint: "Matches titles, text and tags. Or leave it empty and browse by tag or month.",
     found: (count) => `${count} ${plural(count, "post", "posts")} found`,
     nothingFound: (query) => `No posts found for “${query}”`,
+    filtered: "Posts matching your filters",
+    nothingFiltered: "No posts match your filters",
+    filters: {
+      label: "Filters",
+      tags: "Tags",
+      tagsHint: "With several selected, posts must have all of them",
+      from: "From month",
+      to: "To month",
+      clear: "Clear filters",
+      anyMonth: "Any",
+    },
     errorTitle: "Search failed",
     errors: {
       network: "Can’t reach the server. Check your connection and try again.",

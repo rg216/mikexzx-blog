@@ -1,0 +1,83 @@
+/* 一列窄的时间线：和正文栏同宽 */
+.page {
+  max-width: var(--content-width);
+  margin-inline: auto;
+}
+
+.header {
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  font-size: var(--font-size-large-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.intro {
+  margin-top: var(--space-1);
+  color: var(--color-secondary-label);
+}
+
+.year + .year {
+  margin-top: var(--space-5);
+}
+
+.yearTitle {
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-bold);
+}
+
+.month {
+  margin-top: var(--space-2);
+}
+
+.monthTitle {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding-bottom: var(--space-0-5);
+  border-bottom: 0.5px solid var(--color-separator);
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 小号灰字用半粗补偿 */
+.monthCount {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+}
+
+.list {
+  padding: 0;
+  list-style: none;
+}
+
+/* 日期一列、标题一列；标题换行时仍和自己的第一行对齐 */
+.item {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--space-1);
+}
+
+.day {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.link {
+  display: block;
+  /* 每行都是可点击的，高度 ≥ 44px */
+  padding-block: calc((var(--hit-target) - 1lh) / 2);
+  color: var(--color-label);
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .link:hover {
+    color: var(--color-accent);
+  }
+}

@@ -88,8 +88,8 @@ describe("POST /admin/posts", () => {
       body: { slug: "p", title: "p", contentMd: "x", tags: ["design", "css", "design"] },
     });
     expect(adminPostSchema.parse(res.body).tags).toEqual([
-      { slug: "design", name: "设计" },
-      { slug: "css", name: "CSS" },
+      { slug: "design", name: "设计", locale: "zh" },
+      { slug: "css", name: "CSS", locale: "zh" },
     ]);
   });
 
@@ -151,10 +151,10 @@ describe("PATCH /admin/posts/:id", () => {
     await createTag({ slug: "b", name: "B" });
     const { id } = await createPost({ slug: "p", tags: ["a"] });
     await request("PATCH", `/admin/posts/${id}`, { body: { title: "t" } });
-    expect(adminPostSchema.parse((await request("GET", `/admin/posts/${id}`)).body).tags).toEqual([{ slug: "a", name: "A" }]);
+    expect(adminPostSchema.parse((await request("GET", `/admin/posts/${id}`)).body).tags).toEqual([{ slug: "a", name: "A", locale: "zh" }]);
 
     const res = await request("PATCH", `/admin/posts/${id}`, { body: { tags: ["b"] } });
-    expect(adminPostSchema.parse(res.body).tags).toEqual([{ slug: "b", name: "B" }]);
+    expect(adminPostSchema.parse(res.body).tags).toEqual([{ slug: "b", name: "B", locale: "zh" }]);
 
     const refused = await request("PATCH", `/admin/posts/${id}`, { body: { title: "不会保存", tags: ["missing"] } });
     expect(refused.status).toBe(400);

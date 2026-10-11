@@ -33,6 +33,33 @@ const ja: Dictionary = {
     learnMore: "詳しく見る",
     tags: "タグ",
     tagCount: (count) => `${count}件`,
+    allTags: "すべてのタグ",
+    archive: "アーカイブ",
+    archiveLink: "すべての記事を月別に見る",
+  },
+
+  feed: {
+    loadMore: "さらに読み込む",
+    retry: "再試行",
+    loaded: (count) => (count > 0 ? `記事を${count}件読み込みました` : "これ以上の記事はありません"),
+    errorTitle: "読み込めませんでした",
+  },
+
+  tags: {
+    title: "タグ",
+    intro: "トピックごとに記事を探せます。",
+    empty: "タグはまだありません。",
+    eyebrow: "タグ",
+    postCount: (count) => `${count}件の記事`,
+    allTags: "すべてのタグ",
+    description: (name) => `タグ「${name}」の記事一覧です。`,
+  },
+
+  archive: {
+    title: "アーカイブ",
+    intro: (count) => `全${count}件の記事を新しい順に並べています。`,
+    empty: "記事はまだありません。",
+    monthCount: (count) => `${count}件`,
   },
 
   post: {
@@ -68,9 +95,20 @@ const ja: Dictionary = {
     title: "検索",
     fieldLabel: "記事を検索",
     placeholder: "記事を検索",
-    hint: "タイトル・本文・タグから検索します",
+    hint: "タイトル・本文・タグから検索します。キーワードなしで、タグや月だけで絞り込むこともできます",
     found: (count) => `${count}件の記事が見つかりました`,
     nothingFound: (query) => `「${query}」に一致する記事は見つかりませんでした`,
+    filtered: "条件に合う記事",
+    nothingFiltered: "条件に合う記事はありません",
+    filters: {
+      label: "絞り込み",
+      tags: "タグ",
+      tagsHint: "複数選ぶと、そのすべてのタグが付いた記事に絞り込みます",
+      from: "開始月",
+      to: "終了月",
+      clear: "絞り込みを解除",
+      anyMonth: "指定なし",
+    },
     errorTitle: "検索できませんでした",
     errors: {
       network: "サーバーに接続できません。ネットワークを確認して、もう一度お試しください。",

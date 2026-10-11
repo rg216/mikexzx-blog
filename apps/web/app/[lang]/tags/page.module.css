@@ -1,0 +1,20 @@
+/* 一列窄的列表：和正文栏同宽 */
+.page {
+  max-width: var(--content-width);
+  margin-inline: auto;
+}
+
+.header {
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  font-size: var(--font-size-large-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.intro,
+.empty {
+  margin-top: var(--space-1);
+  color: var(--color-secondary-label);
+}

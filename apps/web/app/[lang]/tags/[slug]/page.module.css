@@ -1,0 +1,37 @@
+.header {
+  margin-bottom: var(--space-2);
+}
+
+/* 标题上方的小字："标签"，说明这一页是什么 */
+.eyebrow {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+}
+
+.title {
+  font-size: var(--font-size-large-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.title::before {
+  content: "#";
+  content: "#" / "";
+  color: var(--color-tertiary-label);
+}
+
+.count {
+  margin-top: var(--space-0-5);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+}
+
+.asideLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-target);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}

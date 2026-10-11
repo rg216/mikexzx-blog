@@ -11,21 +11,12 @@
   color: var(--color-secondary-label);
 }
 
-.list {
-  padding: 0;
-  list-style: none;
-}
-
-/* 分隔线画在条目之间，而不是每条底部，首尾都不会多出一条线 */
-.item + .item {
-  border-top: 0.5px solid var(--color-separator);
-}
-
 .about {
   font-size: var(--font-size-subhead);
 }
 
-.aboutLink {
+.aboutLink,
+.asideLink {
   display: inline-flex;
   align-items: center;
   min-height: var(--hit-target);

@@ -43,6 +43,8 @@ type AppOptions = {
   cronSecret?: string;
   /** 测试里关掉，避免刷屏 */
   logRequests?: boolean;
+  /** 部署的版本（提交号），/health 返回它；本地为 null */
+  version?: string | null;
 };
 
 /** 组装应用。依赖从外面传入（而不是在模块里直接连库），测试时可以换成测试库。 */
@@ -58,6 +60,7 @@ export function createApp({
   translationHeartbeatMs,
   cronSecret,
   logRequests = false,
+  version = null,
 }: AppOptions) {
   const app = new Hono<AuthEnv>();
   const limiter = redis ? createRateLimiter(redis) : unlimited;
@@ -72,7 +75,7 @@ export function createApp({
   app.use(loadSession(db, auth));
   app.use(loadCommenter(db, auth));
 
-  app.get("/health", (c) => c.json({ ok: true }));
+  app.get("/health", (c) => c.json({ ok: true, version }));
   app.route("/", publicRoutes(db));
   app.route("/", viewRoutes(db, redis, limiter));
   app.route("/", searchRoutes(db, limiter));

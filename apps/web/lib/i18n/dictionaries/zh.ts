@@ -38,6 +38,37 @@ const zh = {
     tags: "标签",
     /** 标签篇数给读屏的完整读法（视觉上只显示数字） */
     tagCount: (count: number) => `${count} 篇`,
+    allTags: "全部标签",
+    archive: "归档",
+    archiveLink: "按月份浏览全部文章",
+  },
+
+  /** 列表的"加载更多"（首页、标签页、搜索页的条件浏览） */
+  feed: {
+    loadMore: "加载更多",
+    retry: "重试",
+    /** 加载完成后给读屏的播报 */
+    loaded: (count: number) => (count > 0 ? `又加载了 ${count} 篇文章` : "没有更多文章了"),
+    errorTitle: "加载失败",
+  },
+
+  tags: {
+    title: "标签",
+    intro: "按主题浏览文章。",
+    empty: "还没有标签。",
+    /** 标签页标题上方的小字 */
+    eyebrow: "标签",
+    postCount: (count: number) => `${count} 篇文章`,
+    allTags: "全部标签",
+    description: (name: string) => `标签“${name}”下的全部文章。`,
+  },
+
+  archive: {
+    title: "归档",
+    intro: (count: number) => `共 ${count} 篇文章，按发布时间排列。`,
+    empty: "还没有文章。",
+    /** 每个月份后面的篇数 */
+    monthCount: (count: number) => `${count} 篇`,
   },
 
   post: {
@@ -78,9 +109,23 @@ const zh = {
     title: "搜索",
     fieldLabel: "搜索文章",
     placeholder: "搜索文章",
-    hint: "匹配标题、正文和标签",
+    hint: "匹配标题、正文和标签；也可以不输入，只按标签、月份浏览",
     found: (count: number) => `找到 ${count} 篇文章`,
     nothingFound: (query: string) => `没有找到与“${query}”相关的文章`,
+    /** 只按条件浏览（没有关键词）时的状态 */
+    filtered: "符合条件的文章",
+    nothingFiltered: "没有符合条件的文章",
+    filters: {
+      label: "筛选",
+      tags: "标签",
+      /** 选中的标签需要全部满足 */
+      tagsHint: "选多个时，文章要同时带有这些标签",
+      from: "起始月份",
+      to: "结束月份",
+      clear: "清除筛选",
+      /** 月份下拉框里"不限"的那一项 */
+      anyMonth: "不限",
+    },
     errorTitle: "搜索失败",
     errors: {
       network: "无法连接服务器，请检查网络后重试",

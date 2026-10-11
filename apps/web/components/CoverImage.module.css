@@ -1,0 +1,26 @@
+/* 头图在标题区之后、正文之前；和正文之间的距离与正文里的图片一致 */
+.hero {
+  margin-bottom: var(--space-5);
+}
+
+/* 正文的规则会给 figure 加上外边距（隔开前面的段落）；这里前面是标题区，它自己已经留了下边距，不再叠加 */
+.hero > figure:first-child {
+  margin-top: 0;
+}
+
+/* 卡片缩略图：固定 4:3 裁切，宽屏 160px、手机 88px（与 lib/cover.ts 的 thumbnailSizes 一致） */
+.thumbnail {
+  display: block;
+  width: 88px;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+}
+
+@media (min-width: 70rem) {
+  .thumbnail {
+    width: 160px;
+  }
+}

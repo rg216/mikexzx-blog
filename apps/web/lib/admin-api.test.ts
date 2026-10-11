@@ -11,6 +11,7 @@ const post: AdminPost = {
   status: "draft",
   publishedAt: null,
   tags: [],
+  cover: null,
   images: {},
   locale: "zh",
   createdAt: "2026-10-01T00:00:00.000Z",

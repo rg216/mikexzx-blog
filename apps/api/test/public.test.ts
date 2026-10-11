@@ -95,8 +95,8 @@ describe("GET /tags", () => {
 
     const res = await request("GET", "/tags", { auth: false });
     expect(z.array(tagWithCountSchema).parse(res.body)).toEqual([
-      { ...fullstack, count: 2 },
-      { ...design, count: 1 },
+      { ...fullstack, locale: "zh", count: 2 },
+      { ...design, locale: "zh", count: 1 },
     ]);
   });
 });
@@ -156,7 +156,7 @@ describe("languages", () => {
       availableLocales: ["zh", "ja"],
       translation: { origin: "human", outdated: false },
       // 标签名用这种语言的译名
-      tags: [{ slug: "t", name: "タグ" }],
+      tags: [{ slug: "t", name: "タグ", locale: "ja" }],
     });
   });
 
@@ -191,8 +191,8 @@ describe("languages", () => {
 
     // 名称是英文的译名，同样篇数时按译名排序
     expect(await tagsIn("en")).toEqual([
-      { slug: "only-a", name: "Alpha", count: 1 },
-      { slug: "shared", name: "Shared", count: 1 },
+      { slug: "only-a", name: "Alpha", locale: "en", count: 1 },
+      { slug: "shared", name: "Shared", locale: "en", count: 1 },
     ]);
     expect((await tagsIn("zh")).find((t) => t.slug === "shared")?.count).toBe(2);
     expect(await tagsIn("ja")).toEqual([]);
@@ -206,8 +206,9 @@ describe("languages", () => {
     await translatePost(id, "en");
 
     expect((await postIn("a", "en")).tags).toEqual([
-      { slug: "t", name: "Tag" },
-      { slug: "legacy", name: "旧标签" },
+      // 名称的语言如实标出：没有译名的旧标签是中文
+      { slug: "t", name: "Tag", locale: "en" },
+      { slug: "legacy", name: "旧标签", locale: "zh" },
     ]);
     expect((await listIn("en"))[0]?.tags.map((t) => t.name)).toEqual(["Tag", "旧标签"]);
     // 没有日文译文的文章在 /ja 显示原文，界面语言仍是日文：标签名也用日文
@@ -238,7 +239,7 @@ describe("languages", () => {
     await db.insert(postTranslations).values({ postId: id, locale: "zh", title: "冒牌", contentMd: "x", excerpt: "x", sourceHash: "0".repeat(64), origin: "human" });
     expect((await listIn("zh")).map((p) => p.title)).toEqual(["原文标题"]);
     expect(await postIn("a", "zh")).toMatchObject({ title: "原文标题", translation: null });
-    expect(await tagsIn("zh")).toEqual([{ slug: "t", name: "T", count: 1 }]);
+    expect(await tagsIn("zh")).toEqual([{ slug: "t", name: "T", locale: "zh", count: 1 }]);
   });
 
   it.each([["/posts?locale=fr"], ["/posts/a?locale=fr"], ["/tags?locale=fr"], ["/posts?locale=zh-CN"], ["/posts?locale="]])(
@@ -262,5 +263,7 @@ describe("misc", () => {
   it("sets security headers", async () => {
     const res = await request("GET", "/health", { auth: false });
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    // 测试里没有部署版本
+    expect(res.body).toEqual({ ok: true, version: null });
   });
 });

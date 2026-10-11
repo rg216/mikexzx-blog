@@ -33,6 +33,7 @@ import { MediaPicker } from "./media/MediaPicker";
 import styles from "./PostEditorForm.module.css";
 import { PostTranslations } from "./PostTranslations";
 import { StatusBadge } from "./StatusBadge";
+import { CoverField } from "./CoverField";
 import { TagPicker } from "./TagPicker";
 import { useMarkdownImages } from "./useMarkdownImages";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard";
@@ -51,7 +52,7 @@ const viewOptions = [
 ] as const;
 
 /** 出错时按页面上的顺序找第一个有错的字段聚焦 */
-const fieldOrder: PostFormField[] = ["title", "slug", "tags", "contentMd"];
+const fieldOrder: PostFormField[] = ["title", "slug", "tags", "cover", "contentMd"];
 
 export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null }) {
   /** 服务器上的最新版本（新建且还没保存过时为 null） */
@@ -96,9 +97,10 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
     const field = fieldOrder.find((f) => nextErrors[f]);
     if (!field) return;
     if (field === "contentMd" && view === "preview") setView("edit");
-    const target = { title: titleRef, slug: slugRef, tags: tagRef, contentMd: contentRef }[field];
+    // 头图没有可以聚焦的输入框，错误显示在它下面即可
+    const target = { title: titleRef, slug: slugRef, tags: tagRef, contentMd: contentRef, cover: null }[field];
     // 等切换视图后的渲染完成，被隐藏的正文框显示出来才能聚焦
-    requestAnimationFrame(() => target.current?.focus());
+    requestAnimationFrame(() => target?.current?.focus());
   }
 
   function fail(nextErrors: PostFormErrors, title: string, message?: string) {
@@ -337,6 +339,10 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
 
           <div className={styles.tagsField}>
             <TagPicker tags={values.tags} onChange={(tags) => setField("tags", tags)} error={errors.tags} inputRef={tagRef} />
+          </div>
+
+          <div className={styles.coverField}>
+            <CoverField cover={values.cover} onChange={(cover) => setField("cover", cover)} error={errors.cover} />
           </div>
 
           {/* 译文挂在文章 id 上，新建的文章保存之后才有入口 */}

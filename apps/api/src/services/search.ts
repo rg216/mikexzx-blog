@@ -1,10 +1,10 @@
-import { type Locale, localeInfo, SEARCH_RESULT_LIMIT, type SearchHit } from "@blog/shared";
+import { type Locale, localeInfo, type PostFilter, SEARCH_RESULT_LIMIT, type SearchHit } from "@blog/shared";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { posts, postTranslations } from "../db/schema.ts";
 import { plainTextFromMarkdown } from "../lib/markdown-text.ts";
 import { buildSearchQuery, buildSnippet, findHighlights } from "../lib/search-text.ts";
-import { tagsByPostId } from "./post-common.ts";
+import { postFilterCondition, tagsByPostId } from "./post-common.ts";
 
 type Candidate = { id: number; slug: string; title: string; contentMd: string; publishedAt: Date | null; rank: number };
 
@@ -21,7 +21,7 @@ export function compareHits(a: Candidate, b: Candidate): number {
  * 两路各自按相关度取前 20 再在内存里合并，而不是一条 SQL 里 OR 两张表：分开查时两边都能走各自的 GIN 索引，
  * 合并 40 条的代价可以忽略。两边的 rank 用同一个公式、同一套分词算出，可以直接比较。
  */
-export async function searchPosts(db: Db, query: string, locale: Locale): Promise<SearchHit[]> {
+export async function searchPosts(db: Db, query: string, locale: Locale, filter: PostFilter = { tags: [] }): Promise<SearchHit[]> {
   const tsquery = buildSearchQuery(query);
   if (!tsquery) return [];
 
@@ -34,7 +34,7 @@ export async function searchPosts(db: Db, query: string, locale: Locale): Promis
       .select({ id: posts.id, slug: posts.slug, title: posts.title, contentMd: posts.contentMd, publishedAt: posts.publishedAt, rank: originalRank })
       .from(posts)
       // status 条件让查询能用上 posts_search_idx（部分索引）
-      .where(and(eq(posts.status, "published"), eq(posts.sourceLocale, locale), sql`${posts.searchVector} @@ ${q}`))
+      .where(and(eq(posts.status, "published"), eq(posts.sourceLocale, locale), sql`${posts.searchVector} @@ ${q}`, postFilterCondition(db, filter)))
       .orderBy(desc(originalRank), desc(posts.publishedAt), desc(posts.id))
       .limit(SEARCH_RESULT_LIMIT),
     db
@@ -49,7 +49,7 @@ export async function searchPosts(db: Db, query: string, locale: Locale): Promis
       .from(postTranslations)
       // 与列表一致：原文就是这种语言时只认原文
       .innerJoin(posts, and(eq(posts.id, postTranslations.postId), eq(posts.status, "published"), ne(posts.sourceLocale, locale)))
-      .where(and(eq(postTranslations.locale, locale), sql`${postTranslations.searchVector} @@ ${q}`))
+      .where(and(eq(postTranslations.locale, locale), sql`${postTranslations.searchVector} @@ ${q}`, postFilterCondition(db, filter)))
       .orderBy(desc(translationRank), desc(posts.publishedAt), desc(posts.id))
       .limit(SEARCH_RESULT_LIMIT),
   ]);

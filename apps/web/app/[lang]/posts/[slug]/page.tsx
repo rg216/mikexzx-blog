@@ -7,9 +7,11 @@ import { PageLayout } from "@/components/PageLayout";
 import { RecentPosts } from "@/components/RecentPosts";
 import { SidebarSection } from "@/components/SidebarSection";
 import { Comments } from "@/components/comments/Comments";
+import { CoverHero } from "@/components/CoverImage";
 import { TagList } from "@/components/TagList";
 import { TranslationNotice } from "@/components/TranslationNotice";
 import { ViewCounter } from "@/components/ViewCounter";
+import { ogImageOf } from "@/lib/cover";
 import { formatDate } from "@/lib/format";
 import { getDictionary } from "@/lib/i18n";
 import { postAlternates } from "@/lib/i18n/alternates";
@@ -66,7 +68,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: post.title,
       publishedTime: post.publishedAt,
       tags: post.tags.map((tag) => tag.name),
+      // 分享卡片的配图：头图（没有就不设，社交平台显示无图的卡片）
+      ...(post.cover && { images: [ogImageOf(post.cover)] }),
     },
+    // X（Twitter）有图时用大图卡片。标题、描述它会回退读 og:*，图片也显式给出
+    ...(post.cover && { twitter: { card: "summary_large_image", images: [ogImageOf(post.cover).url] } }),
   };
 }
 
@@ -109,9 +115,11 @@ export default async function PostPage({ params }: Props) {
           <div className={styles.meta}>
             <time dateTime={post.publishedAt}>{formatDate(post.publishedAt, locale)}</time>
             <ViewCounter slug={post.slug} />
-            <TagList tags={post.tags} locale={locale} />
+            <TagList tags={post.tags} locale={locale} linked />
           </div>
         </header>
+
+        {post.cover && <CoverHero cover={post.cover} />}
 
         {notice && <TranslationNotice notice={notice} slug={post.slug} locale={locale} />}
 

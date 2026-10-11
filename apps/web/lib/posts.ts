@@ -1,7 +1,10 @@
 import {
+  type ArchiveItem,
+  archiveSchema,
   cacheTags,
   type Locale,
   type PostSummary,
+  type PostSummaryPage,
   postSummaryPageSchema,
   type PublicPost,
   publicPostSchema,
@@ -10,6 +13,7 @@ import {
 } from "@blog/shared";
 import { z } from "zod";
 import { apiGet } from "./api";
+import { POSTS_PER_PAGE } from "./pagination";
 
 /*
  * 数据访问层：调用 apps/api，返回 @blog/shared 的类型。
@@ -22,6 +26,7 @@ import { apiGet } from "./api";
 
 export type PublishedPost = PublicPost & { status: "published"; publishedAt: string };
 
+
 function isPublished(post: PublicPost): post is PublishedPost {
   return post.status === "published" && post.publishedAt !== null;
 }
@@ -31,6 +36,18 @@ export async function listPublishedPosts({ limit = 20, locale }: { limit?: numbe
   const params = new URLSearchParams({ limit: String(limit), locale });
   const page = await apiGet(`/posts?${params}`, postSummaryPageSchema, { tags: [cacheTags.posts(locale)] });
   return page.items;
+}
+
+/** 列表页的第一页（首页、标签页）：后面的页由浏览器经 /api/posts 按游标加载（components/PostFeed.tsx） */
+export async function getFirstPage({ locale, tag, limit = POSTS_PER_PAGE }: { locale: Locale; tag?: string; limit?: number }): Promise<PostSummaryPage> {
+  const params = new URLSearchParams({ limit: String(limit), locale });
+  if (tag) params.set("tags", tag);
+  return apiGet(`/posts?${params}`, postSummaryPageSchema, { tags: [cacheTags.posts(locale)] });
+}
+
+/** 归档页：某种语言可见的全部文章的标题和发布时间 */
+export async function listArchive(locale: Locale): Promise<ArchiveItem[]> {
+  return apiGet(`/archive?${new URLSearchParams({ locale })}`, archiveSchema, { tags: [cacheTags.posts(locale)] });
 }
 
 /** 某种语言下的全部已发布文章（生成静态路径用）：沿着游标一页页取，直到没有下一页。 */

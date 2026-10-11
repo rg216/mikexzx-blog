@@ -31,7 +31,8 @@ describe("postSchema", () => {
     excerpt: "Hi",
     status: "published",
     publishedAt: "2026-10-01T09:00:00+08:00",
-    tags: [],
+    tags: [{ slug: "css", name: "CSS", locale: "zh" }],
+    cover: { url: "https://img.test/images/2026/10/AbCdEfGh_jKlMn-p.jpg", alt: "", width: 2560, height: 1920, variants: [640] },
     images: { "images/2026/10/AbCdEfGh_jKlMn-p.jpg": { width: 2560, height: 1920, variants: [640, 1280] } },
     locale: "zh",
   };
@@ -69,6 +70,7 @@ describe("publicPostSchema", () => {
     status: "published",
     publishedAt: "2026-10-01T09:00:00+08:00",
     tags: [],
+    cover: null,
     images: {},
     locale: "en",
     sourceLocale: "zh",
@@ -107,6 +109,7 @@ describe("adminPostSchema / adminTranslationSchema", () => {
       status: "draft",
       publishedAt: null,
       tags: [],
+      cover: null,
       images: {},
       locale: "zh",
       id: 1,
@@ -170,9 +173,24 @@ describe("translationInputSchema", () => {
 
 describe("listPostsQuerySchema", () => {
   it("defaults to the default language", () => {
-    expect(listPostsQuerySchema.parse({})).toEqual({ limit: 20, locale: "zh" });
+    expect(listPostsQuerySchema.parse({})).toEqual({ limit: 20, locale: "zh", tags: [] });
     expect(listPostsQuerySchema.parse({ locale: "ja" }).locale).toBe("ja");
     expect(listPostsQuerySchema.safeParse({ locale: "fr" }).success).toBe(false);
+  });
+});
+
+describe("post filters", () => {
+  it("splits and de-duplicates tags, and checks month formats and order", () => {
+    expect(listPostsQuerySchema.parse({ tags: "css,design,css", from: "2026-01", to: "2026-03" })).toMatchObject({
+      tags: ["css", "design"],
+      from: "2026-01",
+      to: "2026-03",
+    });
+    expect(listPostsQuerySchema.parse({ tags: "" }).tags).toEqual([]);
+    for (const bad of [{ from: "2026-13" }, { to: "26-01" }, { from: "2026-04", to: "2026-03" }, { tags: "CSS" }, { tags: "a,,b" }]) {
+      expect(listPostsQuerySchema.safeParse(bad).success).toBe(false);
+    }
+    expect(listPostsQuerySchema.safeParse({ from: "2026-03", to: "2026-03" }).success).toBe(true);
   });
 });
 
@@ -180,11 +198,17 @@ describe("postCreateInputSchema", () => {
   const input = { slug: "hello", title: "Hello", contentMd: "正文" };
 
   it("defaults status to draft and tags to []", () => {
-    expect(postCreateInputSchema.parse(input)).toEqual({ ...input, status: "draft", tags: [] });
+    expect(postCreateInputSchema.parse(input)).toEqual({ ...input, status: "draft", tags: [], coverImage: null });
   });
 
   it("rejects unknown fields instead of silently dropping them", () => {
     expect(postCreateInputSchema.safeParse({ ...input, contentMD: "typo" }).success).toBe(false);
+  });
+
+  it("only takes a cover from the media library", () => {
+    const cover = "https://img.test/images/2026/10/AbCdEfGh_jKlMn-p.jpg";
+    expect(postCreateInputSchema.parse({ ...input, coverImage: cover }).coverImage).toBe(cover);
+    expect(postCreateInputSchema.safeParse({ ...input, coverImage: "https://example.com/a.jpg" }).success).toBe(false);
   });
 
   it("trims the title and rejects a blank one", () => {

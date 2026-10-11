@@ -80,6 +80,14 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 标签名在原文和译文的搜索索引里，也显示在每种语言的文章页上：改名、改译名、合并、删除后重建用到它的文章及其译文的索引（不改 `updated_at` / `translated_at`），并刷新这些已发布文章在每种语言下的页面和列表；缓存标签多于 50 个（`REVALIDATE_MAX_TAGS`）时 revalidate 分批发送
 - 合并：用到 A 的文章改用 B（保持原位置），同时有 A、B 的只去掉 A，然后删除 A
 
+## 内容浏览（v4.6）
+- 标签页 `/tags/<slug>`（各语言 `/en/tags/<slug>`，slug 相同）和总览 `/tags`：ISR，数据与首页侧栏的标签统计同一份（`listTags`），缓存一起失效。某语言下这个标签没有可见文章时 404、也不出现在该语言的标签列表里（和"没有译文的文章不进该语言列表"一致）；hreflang 只列有文章的语言。文章页、侧栏的标签是链接，列表卡片里的不是（整张卡片已是链接，不嵌套交互元素）
+- 列表翻页用"加载更多"（`PostFeed`，`GET /posts` 的游标），不做 `/page/2` 页码网址：页码内容随新文章整体错位，对读者和搜索引擎都不稳定；搜索引擎靠归档页和各标签页发现全部文章。第一页进 ISR 页面，之后由浏览器经 `/api/posts` 加载；加载后焦点移到第一篇新文章
+- 归档 `/archive`：`GET /archive?locale=` 一次返回该语言全部文章的标题和发布时间，按年、月分组（站点时区）
+- 筛选：`GET /posts` 和 `GET /search` 都接受 `tags`（逗号分隔，文章须同时带有全部标签，≤ 10 个）、`from` / `to`（`YYYY-MM`，两端都含，按站点时区 `SITE_TIME_ZONE` 算月份边界，`postFilterCondition`）。搜索页：有关键词时走搜索（相关度前 20），只有筛选条件时走列表（按时间、可加载更多）；条件同步到网址。组合条件只出现在不被收录的搜索页里，不生成可收录的组合网址。月份下拉框只列有文章的月份（从归档接口推出），不用 `<input type="month">`（Safari、Firefox 桌面版不支持）
+- 头图：`posts.cover_image` 存媒体库图片的地址（和正文图片一样按 key 识别，只收媒体库图片），各语言共用，算作图片引用（`post_images`，删除要 force）。公开接口返回 `cover`（地址、媒体库里的描述作 alt、宽高、尺寸版本；图片被强制删除后为 null）。显示在文章页顶部（沿用正文"大"图的规则：出血 864、手机贴边，LCP 所以 `fetchpriority=high`）、列表卡片右侧缩略图（4:3 裁切，装饰性 alt 为空）、`og:image`（≥ 1200 的最小版本）+ `twitter:card=summary_large_image`。编辑器的"头图"用媒体选择器的只选图模式
+- 改标签 slug 时，标签管理里提示旧的标签页网址会失效；不做跳转
+
 ## 评论（v4c）
 - 评论者用 GitHub 登录（GitHub App，不申请任何权限，只读公开资料；一个 App 配本地和线上两个回调地址），与管理员的 Passkey 体系完全分开：
   - 独立的表（`commenters`、`commenter_sessions`）和 cookie（`__Host-commenter`）；评论者 session 访问不了 `/admin/*`
@@ -108,6 +116,8 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 缓存标签定义在 `@blog/shared` 的 `cacheTags`，按语言区分：列表类 `posts:<locale>`，单篇 `post:<slug>:<locale>`
 - API 写入文章后（`tagsForChange`：只要写入前后有一边是已发布，所有语言都失效；保存 / 删除译文用 `tagsForTranslationChange`：只失效该语言，译文从无到有 / 从有到无时再加其他语言的文章页）调用前端 `POST /hooks/revalidate`（Bearer `REVALIDATE_SECRET`，两个项目共享），前端 `revalidateTag(tag, { expire: 0 })`
 - 通知失败只记日志、不影响写入；一小时定时刷新兜底。`/hooks` 不能放在 `/api` 下（`/api/*` 整体代理给 API）
+- Next 的 fetch 数据缓存在部署之间是保留的：API 响应加了必填字段后，新部署会读到旧形状的缓存而校验失败。所以 `apiGet` 的请求头带 `x-cache-version`（Vercel 的部署编号），成为缓存键的一部分，每次部署从干净的缓存开始；本地每次启动换一个
+- 两个 Vercel 项目由同一次推送同时触发：前端构建若早于新 API 上线，会按新 schema 预渲染旧 API 而失败（重新部署前端即可）。API 的 `/health` 返回部署的提交号（`version`），可以确认线上 API 已更新。根治要按顺序部署（先 API 后前端），放在 v5
 
 ## 多语言（v4.5 框架；v5.5 大模型翻译）
 - 落地方式（v4.5）：
@@ -179,7 +189,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 
 ## 数据模型（初稿）
 - `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`
-- `posts`：slug, title, content_md, excerpt, status (draft | published), published_at, search_vector, source_locale（默认 zh）
+- `posts`：slug, title, content_md, excerpt, status (draft | published), published_at, search_vector, source_locale（默认 zh）, cover_image（头图地址）
 - `post_translations`：(post_id, locale) 主键，title, content_md, excerpt, source_hash, origin（machine | human）, model, translated_at, search_vector；locale 只有格式 CHECK（加语言不需要迁移）；`db:migrate` 同样补齐 search_vector 为 NULL 的译文
 - `tags`（slug、name 均唯一，name 不分大小写）+ `tag_translations`（(tag_id, locale) 主键，name；同一语言内 name 不分大小写唯一）+ `post_tags`（position 为文章内顺序）
 - `commenters`（GitHub 用户，trust：default | trusted | blocked）、`commenter_sessions`、`oauth_states`
@@ -209,8 +219,8 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - [x] v4c 评论（API 项目设 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`）
 - [x] v4.5 多语言框架（见"多语言"）：中英日，`/en` `/ja` 前缀、界面字典、hreflang、`<html lang>`、译文数据结构、后台手工编辑译文（上线前：前端项目设 `SITE_URL`）
   - 上线顺序（缓存标签改成按语言区分、前端的 schema 要求 API 返回 `locale` 等新字段，两个项目不能同时部署）：① Neon 执行迁移 0008（API 读 `posts.source_locale`，先部署 API 会全部报错）② 部署 API，确认 `GET /posts?locale=en` 的每项都带 `locale` ③ 再部署（或重新部署）前端——它构建时请求 API；如果前端的自动部署抢先跑了、预渲染时报 zod / bad response 错误，API 上线后重新部署即可。前后交替的一小时内旧前端的页面不会被新标签失效，靠一小时的定时刷新兜底
-- [ ] CI（v5 里最小的一块，提前做）：GitHub Actions 在每次推送 main 和每个 PR 上跑 lint、类型检查、全部测试（`.github/workflows/ci.yml`，服务用和本地相同的 docker compose 起）
-- [ ] v4.6 内容浏览：
+- [x] CI（v5 里最小的一块，提前做）：GitHub Actions 在每次推送 main 和每个 PR 上跑 lint、类型检查、全部测试（`.github/workflows/ci.yml`，服务用和本地相同的 docker compose 起）
+- [x] v4.6 内容浏览（见"内容浏览（v4.6）"）：
   - 标签页 `/tags/<slug>`（各语言版本、hreflang；某语言下没有可见文章时 404，也不出现在该语言的标签列表里）与 `/tags` 总览；文章页、侧栏的标签改成链接
   - 头图：文章可选一张媒体库图片，用于文章页顶部、列表卡片、`og:image`
   - 归档页 `/archive`：按年、月分组的全部文章
@@ -218,6 +228,6 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - 分页：列表类页面（首页、标签页）翻页
   - 改标签 slug 时提示"旧网址会失效"，不做跳转
   - 做完先停下讨论，再做 v5 的其余部分
-- [ ] v5 工程化：Docker 镜像、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）
+- [ ] v5 工程化：Docker 镜像、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）、按顺序部署（先 API、迁移，后前端）
 - [x] v5.5 大模型翻译（见"多语言"）：译文编辑页手动点击生成（Sonnet 5.5，分段流式、提示缓存），作者过目后保存；结构校验，未修改的机器译文记为 machine（上线前：API 项目设 `ANTHROPIC_API_KEY`（还要有 `REDIS_URL`），没设之前生成按钮是禁用的；Anthropic Console 设每月花费上限；首次部署后在函数详情里确认默认 Max Duration 是 300 秒（未核实的假设，见"函数时长与代理"）、长段落经 `/api` 代理不被掐断）
 - [ ] v6 收款：**暂缓，方案待定**。Stripe 不可用：Stripe 日本不允许以个人名义接受捐赠。需要先确定收款场景（打赏 / 付费文章 / 订阅）和收款主体，再选服务；无论用哪家，支付本身交给托管支付页，订单状态、webhook 签名校验、幂等、对账自己实现

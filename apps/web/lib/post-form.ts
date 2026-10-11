@@ -1,5 +1,7 @@
 import {
+  type AdminImage,
   type AdminPost,
+  type PostCover,
   postCreateInputSchema,
   type PostCreateInput,
   type PostStatus,
@@ -20,6 +22,8 @@ export type PostFormValues = {
   slug: string;
   contentMd: string;
   tags: Tag[];
+  /** 头图（预览要用宽高和描述，所以存整个对象；提交时只发地址） */
+  cover: PostCover | null;
 };
 
 export type PostFormField = keyof PostFormValues;
@@ -27,10 +31,10 @@ export type PostFormField = keyof PostFormValues;
 /** 字段级错误；form 是不属于任何字段的错误（如服务器 500）。 */
 export type PostFormErrors = Partial<Record<PostFormField | "form", string>>;
 
-export const emptyPostForm: PostFormValues = { title: "", slug: "", contentMd: "", tags: [] };
+export const emptyPostForm: PostFormValues = { title: "", slug: "", contentMd: "", tags: [], cover: null };
 
 export function formFromPost(post: AdminPost): PostFormValues {
-  return { title: post.title, slug: post.slug, contentMd: post.contentMd, tags: post.tags };
+  return { title: post.title, slug: post.slug, contentMd: post.contentMd, tags: post.tags, cover: post.cover };
 }
 
 function sameTags(a: Tag[], b: Tag[]): boolean {
@@ -46,12 +50,14 @@ export function isFormDirty(initial: PostFormValues, current: PostFormValues): b
     current.title !== initial.title ||
     current.slug !== initial.slug ||
     current.contentMd !== initial.contentMd ||
-    !sameTags(current.tags, initial.tags)
+    !sameTags(current.tags, initial.tags) ||
+    current.cover?.url !== initial.cover?.url
   );
 }
 
 export function buildCreateInput(values: PostFormValues, status: PostStatus): PostCreateInput {
-  return { ...values, tags: tagSlugs(values.tags), status };
+  const { cover, ...rest } = values;
+  return { ...rest, tags: tagSlugs(values.tags), coverImage: cover?.url ?? null, status };
 }
 
 /**
@@ -71,13 +77,21 @@ export function buildUpdateInput(
   if (current.slug !== initial.slug) input.slug = current.slug;
   if (current.contentMd !== initial.contentMd) input.contentMd = current.contentMd;
   if (!sameTags(current.tags, initial.tags)) input.tags = tagSlugs(current.tags);
+  if (current.cover?.url !== initial.cover?.url) input.coverImage = current.cover?.url ?? null;
   if (status !== initial.status) input.status = status;
   return Object.keys(input).length > 0 ? input : null;
+}
+
+/** 媒体库里选中的图片 → 头图（alt 用媒体库里的描述，和前台一致） */
+export function coverFromImage(image: AdminImage): PostCover {
+  const known = image.width !== null && image.height !== null;
+  return { url: image.url, alt: image.description, width: image.width, height: image.height, variants: known ? image.variants : [] };
 }
 
 /** 把 API 返回的字段路径（如 "tags.0"）归到表单字段上。 */
 function fieldForPath(path: string): PostFormField | "form" {
   const head = path.split(".")[0];
+  if (head === "coverImage") return "cover";
   return head === "title" || head === "slug" || head === "contentMd" || head === "tags" ? head : "form";
 }
 

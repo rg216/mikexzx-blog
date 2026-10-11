@@ -1,6 +1,6 @@
 import { defaultLocale, type Locale, localeInfo, locales, type PublicPost } from "@blog/shared";
 import type { Metadata } from "next";
-import { localePath, postPath } from "./paths";
+import { localePath, postPath, tagPath } from "./paths";
 
 /*
  * hreflang 与 canonical（metadata.alternates）。网址是相对的，由根布局的 metadataBase 补成绝对网址。
@@ -31,6 +31,21 @@ export function postAlternates(post: Pick<PublicPost, "slug" | "locale" | "sourc
     languages: {
       ...Object.fromEntries(post.availableLocales.map((l) => [localeInfo[l].tag, postPath(l, post.slug)])),
       "x-default": postPath(post.sourceLocale, post.slug),
+    },
+  };
+}
+
+/**
+ * 标签页：只标注这个标签下有可见文章的语言（其他语言的同一个标签页是 404）。
+ * x-default 指向默认语言的版本；默认语言下没有文章时指向第一个有文章的语言。
+ */
+export function tagAlternates(locale: Locale, slug: string, visibleIn: readonly Locale[]): Alternates {
+  const fallback = visibleIn.includes(defaultLocale) ? defaultLocale : (visibleIn[0] ?? locale);
+  return {
+    canonical: tagPath(locale, slug),
+    languages: {
+      ...Object.fromEntries(visibleIn.map((l) => [localeInfo[l].tag, tagPath(l, slug)])),
+      "x-default": tagPath(fallback, slug),
     },
   };
 }

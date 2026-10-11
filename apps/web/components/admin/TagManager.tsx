@@ -338,7 +338,13 @@ export function TagManager() {
           />
           <TextField
             label="slug"
-            hint={editing?.mode === "edit" ? "用于网址：小写字母、数字和连字符" : "用于网址：小写字母、数字和连字符；英文名称留空会自动生成"}
+            hint={
+              editing?.mode === "edit"
+                ? editing.tag.slug !== normalizeSlug(values.slug) && values.slug.trim() !== ""
+                  ? `改了 slug 之后，旧的标签页网址 /tags/${editing.tag.slug} 会失效（不会自动跳转）`
+                  : `标签页的网址 /tags/${editing.tag.slug}：小写字母、数字和连字符`
+                : "标签页的网址：小写字母、数字和连字符；英文名称留空会自动生成"
+            }
             value={values.slug}
             placeholder={suggestedSlug || "如 frontend"}
             maxLength={200}

@@ -8,3 +8,4 @@ export * from "./comment.ts";
 export * from "./media.ts";
 export * from "./translation.ts";
 export * from "./tag.ts";
+export * from "./site.ts";

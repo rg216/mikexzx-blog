@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserPath, localePath, postPath, stripLocale, switchLocalePath } from "./paths";
+import { browserPath, localePath, postPath, stripLocale, switchLocalePath, tagPath } from "./paths";
 
 describe("localePath", () => {
   it.each([
@@ -81,5 +81,20 @@ describe("switchLocalePath", () => {
   it("drops one-off parameters on other pages", () => {
     expect(switchLocalePath("/posts/x", "en", "?login=failed")).toBe("/en/posts/x");
     expect(switchLocalePath("/posts/x", "en", "?q=foo")).toBe("/en/posts/x");
+  });
+});
+
+describe("tagPath", () => {
+  it("prefixes non-default languages", () => {
+    expect(tagPath("zh", "css")).toBe("/tags/css");
+    expect(tagPath("ja", "css")).toBe("/ja/tags/css");
+  });
+});
+
+describe("switchLocalePath with search filters", () => {
+  it("carries the search query and filters to the other language", () => {
+    expect(switchLocalePath("/search", "en", "?q=a&tags=css,design&from=2026-01&to=2026-03&login=failed")).toBe(
+      "/en/search?q=a&tags=css%2Cdesign&from=2026-01&to=2026-03",
+    );
   });
 });

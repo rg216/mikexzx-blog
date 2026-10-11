@@ -41,9 +41,19 @@ const sizeHints: Record<SizeChoice, string> = {
 type Props = {
   open: boolean;
   onClose: () => void;
-  /** 选好后插入正文的 Markdown */
-  onInsert: (markdown: string) => void;
-};
+} & (
+  | {
+      /** 选好后插入正文的 Markdown（带显示尺寸和这一次使用的描述） */
+      onInsert: (markdown: string) => void;
+      onPick?: never;
+    }
+  | {
+      /** 只选一张图（头图）：不显示尺寸和描述选项，直接把图片交给调用方 */
+      onPick: (image: AdminImage) => void;
+      onInsert?: never;
+      title: string;
+    }
+);
 
 /** 显示尺寸的选择 → 写进地址的片段；"大"是单独成段图片的默认效果，不写片段 */
 export function displaySizeOf(choice: SizeChoice, customWidth: number): ImageDisplaySize | null {
@@ -56,7 +66,9 @@ export function displaySizeOf(choice: SizeChoice, customWidth: number): ImageDis
  * 编辑器的媒体选择器：从媒体库里挑一张图（也可以当场上传），选显示尺寸、改这一次使用的描述，插入正文。
  * 粘贴、拖入图片仍然直接上传并插入，不经过这里——那是最快的路径。
  */
-export function MediaPicker({ open, onClose, onInsert }: Props) {
+export function MediaPicker(props: Props) {
+  const { open, onClose } = props;
+  const pickOnly = props.onPick !== undefined;
   const [folders, setFolders] = useState<MediaFolder[]>([]);
   const [folder, setFolder] = useState<"all" | "none" | number>("all");
   const [query, setQuery] = useState("");
@@ -125,11 +137,12 @@ export function MediaPicker({ open, onClose, onInsert }: Props) {
 
   const width = Number(customWidth);
   const widthValid = Number.isInteger(width) && width >= IMAGE_CUSTOM_WIDTH_MIN && width <= IMAGE_CUSTOM_WIDTH_MAX;
-  const canInsert = picked !== null && (size !== "custom" || widthValid);
+  const canInsert = picked !== null && (pickOnly || size !== "custom" || widthValid);
 
   function insert() {
     if (!picked || !canInsert) return;
-    onInsert(markdownForImage({ url: picked.url, description: alt }, displaySizeOf(size, width)));
+    if (props.onPick) props.onPick(picked);
+    else props.onInsert(markdownForImage({ url: picked.url, description: alt }, displaySizeOf(size, width)));
     setPicked(null);
     onClose();
   }
@@ -137,45 +150,47 @@ export function MediaPicker({ open, onClose, onInsert }: Props) {
   return (
     <Dialog
       open={open}
-      title="插入图片"
+      title={props.onPick ? props.title : "插入图片"}
       size="wide"
       onClose={onClose}
       footer={
         <div className={styles.footer}>
-          <div className={styles.options}>
-            <div className={styles.sizeRow}>
-              <SegmentedControl label="显示尺寸" options={sizeOptions} value={size} onChange={setSize} />
-              {size === "custom" && (
-                <TextField
-                  className={styles.widthField}
-                  label="宽度（px）"
-                  hideLabel
-                  type="number"
-                  inputMode="numeric"
-                  min={IMAGE_CUSTOM_WIDTH_MIN}
-                  max={IMAGE_CUSTOM_WIDTH_MAX}
-                  value={customWidth}
-                  onChange={(event) => setCustomWidth(event.target.value)}
-                  error={widthValid ? undefined : `${IMAGE_CUSTOM_WIDTH_MIN}–${IMAGE_CUSTOM_WIDTH_MAX}`}
-                />
-              )}
-              <span className={styles.hint}>{sizeHints[size]}；不会放大到超过原图</span>
+          {!pickOnly && (
+            <div className={styles.options}>
+              <div className={styles.sizeRow}>
+                <SegmentedControl label="显示尺寸" options={sizeOptions} value={size} onChange={setSize} />
+                {size === "custom" && (
+                  <TextField
+                    className={styles.widthField}
+                    label="宽度（px）"
+                    hideLabel
+                    type="number"
+                    inputMode="numeric"
+                    min={IMAGE_CUSTOM_WIDTH_MIN}
+                    max={IMAGE_CUSTOM_WIDTH_MAX}
+                    value={customWidth}
+                    onChange={(event) => setCustomWidth(event.target.value)}
+                    error={widthValid ? undefined : `${IMAGE_CUSTOM_WIDTH_MIN}–${IMAGE_CUSTOM_WIDTH_MAX}`}
+                  />
+                )}
+                <span className={styles.hint}>{sizeHints[size]}；不会放大到超过原图</span>
+              </div>
+              <TextField
+                label="图片描述"
+                hint="读屏软件会读出它；默认来自媒体库，只改这一次使用"
+                value={alt}
+                onChange={(event) => setAlt(event.target.value)}
+                disabled={!picked}
+                maxLength={500}
+              />
             </div>
-            <TextField
-              label="图片描述"
-              hint="读屏软件会读出它；默认来自媒体库，只改这一次使用"
-              value={alt}
-              onChange={(event) => setAlt(event.target.value)}
-              disabled={!picked}
-              maxLength={500}
-            />
-          </div>
+          )}
           <div className={styles.actions}>
             <Button variant="secondary" onClick={onClose}>
               取消
             </Button>
             <Button variant="primary" disabled={!canInsert} onClick={insert}>
-              插入
+              {pickOnly ? "选用" : "插入"}
             </Button>
           </div>
         </div>

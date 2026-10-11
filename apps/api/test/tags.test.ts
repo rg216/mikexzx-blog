@@ -16,8 +16,9 @@ async function listTags() {
   return z.array(adminTagSchema).parse(res.body);
 }
 
+/** 后台文章数据里的标签：原文名称（locale 总是 zh，单独测过），这里只比 slug 和名称 */
 async function tagsOf(id: number) {
-  return adminPostSchema.parse((await request("GET", `/admin/posts/${id}`)).body).tags;
+  return adminPostSchema.parse((await request("GET", `/admin/posts/${id}`)).body).tags.map(({ slug, name }) => ({ slug, name }));
 }
 
 async function searchSlugs(q: string) {
