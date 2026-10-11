@@ -21,6 +21,13 @@ import {
 } from "./translation.ts";
 import { translationInputSchema } from "./post.ts";
 
+/**
+ * "线性时间"测试的上限。这些测试用 20 万字符的病态输入抓二次方（或更糟）的退化：那种退化要跑好几秒甚至几分钟，
+ * 正常实现本机几十毫秒。上限不贴着本机速度定（之前的 100–200ms 在 GitHub Actions 的机器上偶尔超时），
+ * 1 秒既不会因为 CI 慢一点而失败，又比任何二次方退化快几个数量级。
+ */
+const LINEAR_TIME_BUDGET_MS = 1000;
+
 /** 测试里独立解析一次，用来检查段的边界落在哪种块上（不依赖被测模块的内部实现） */
 function topLevelTypes(markdown: string): string[] {
   return unified()
@@ -678,7 +685,7 @@ describe("checkTranslationStructure", () => {
       ]) {
         const started = Date.now();
         checkTranslationStructure(text, text);
-        expect(Date.now() - started).toBeLessThan(200);
+        expect(Date.now() - started).toBeLessThan(LINEAR_TIME_BUDGET_MS);
       }
     });
   });
@@ -1027,7 +1034,7 @@ describe("canonicalLinkUrl", () => {
   ])("runs in linear time on %s", (_name, url, expected) => {
     const started = Date.now();
     expect(canonicalLinkUrl(url)).toBe(expected);
-    expect(Date.now() - started).toBeLessThan(200);
+    expect(Date.now() - started).toBeLessThan(LINEAR_TIME_BUDGET_MS);
   });
 });
 
@@ -1071,7 +1078,7 @@ describe("fitTranslatedSegment", () => {
     expect(fitTranslatedSegment("段落。\n\n", `A${spaces}B${spaces}`)).toBe(`A${spaces}B\n\n`);
     expect(fitTranslatedSegment(`段落${spaces}x${spaces}\n`, `${spaces}\n${spaces}C`)).toBe(`${spaces}C${spaces}\n`);
     expect(fitTranslatedSegment(`\t${spaces}\n段落`, "\n\nD")).toBe(`\t${spaces}\nD`);
-    expect(Date.now() - started).toBeLessThan(100);
+    expect(Date.now() - started).toBeLessThan(LINEAR_TIME_BUDGET_MS);
   });
 
   it("keeps only blanks for an all-blank translation", () => {
