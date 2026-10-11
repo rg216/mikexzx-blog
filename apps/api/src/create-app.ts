@@ -5,7 +5,7 @@ import { secureHeaders } from "hono/secure-headers";
 import type { AuthConfig } from "./auth/config.ts";
 import { simpleWebAuthn, type WebAuthn } from "./auth/webauthn.ts";
 import type { Db } from "./db/client.ts";
-import { errorBody, HttpError, pgErrorCode } from "./lib/errors.ts";
+import { errorBody, HttpError, pgErrorOf, uniqueViolationMessage } from "./lib/errors.ts";
 import { createRateLimiter, unlimited } from "./lib/rate-limit.ts";
 import { noopRevalidator, type Revalidator } from "./lib/revalidate.ts";
 import { type AuthEnv, loadCommenter, loadSession, requireSameOrigin } from "./middleware/auth.ts";
@@ -100,9 +100,10 @@ export function createApp({
     }
 
     // 数据库约束兜底：并发请求可能绕过应用层检查，最终由数据库拒绝
-    switch (pgErrorCode(err)) {
+    const pgError = pgErrorOf(err);
+    switch (pgError?.code) {
       case "23505": // unique_violation
-        return c.json(errorBody("conflict", "slug 已被其他文章使用"), 409);
+        return c.json(errorBody("conflict", uniqueViolationMessage(pgError.constraint)), 409);
       case "23514": // check_violation
         return c.json(errorBody("validation_error", "已发布的文章必须有发布时间"), 400);
     }

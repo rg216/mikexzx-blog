@@ -33,7 +33,7 @@ import { MediaPicker } from "./media/MediaPicker";
 import styles from "./PostEditorForm.module.css";
 import { PostTranslations } from "./PostTranslations";
 import { StatusBadge } from "./StatusBadge";
-import { TagEditor } from "./TagEditor";
+import { TagPicker } from "./TagPicker";
 import { useMarkdownImages } from "./useMarkdownImages";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard";
 
@@ -336,7 +336,7 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
           />
 
           <div className={styles.tagsField}>
-            <TagEditor tags={values.tags} onChange={(tags) => setField("tags", tags)} error={errors.tags} inputRef={tagRef} />
+            <TagPicker tags={values.tags} onChange={(tags) => setField("tags", tags)} error={errors.tags} inputRef={tagRef} />
           </div>
 
           {/* 译文挂在文章 id 上，新建的文章保存之后才有入口 */}

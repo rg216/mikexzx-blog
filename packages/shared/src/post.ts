@@ -16,9 +16,11 @@ const isoDateTime = z.iso.datetime({ offset: true });
 export const postStatusSchema = z.enum(["draft", "published"]);
 export type PostStatus = z.infer<typeof postStatusSchema>;
 
+export const tagNameSchema = z.string().trim().min(1, "标签名不能为空").max(50);
+
 export const tagSchema = z.object({
   slug: slugSchema,
-  name: z.string().trim().min(1).max(50),
+  name: tagNameSchema,
 });
 export type Tag = z.infer<typeof tagSchema>;
 
@@ -127,6 +129,9 @@ export const listPostsQuerySchema = z.object({
 });
 export type ListPostsQuery = z.infer<typeof listPostsQuerySchema>;
 
+/** 每篇文章最多的标签数 */
+export const MAX_POST_TAGS = 20;
+
 // strictObject：多余字段直接报错，而不是悄悄丢弃——拼错字段名（如 contentMD）能立刻发现。
 const postInputFields = {
   slug: slugSchema,
@@ -135,7 +140,8 @@ const postInputFields = {
   status: postStatusSchema,
   /** 一般不传：首次发布时由服务端填当前时间。导入旧文章时可以显式指定。 */
   publishedAt: isoDateTime.nullable(),
-  tags: z.array(tagSchema).max(20),
+  /** 标签的 slug，按显示顺序。只能引用已有的标签（在后台标签页创建），不存在的会报错 */
+  tags: z.array(slugSchema).max(MAX_POST_TAGS),
 };
 
 export const postCreateInputSchema = z.strictObject({

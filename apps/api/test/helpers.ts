@@ -1,4 +1,4 @@
-import { adminPostSchema, type Locale, type PostCreateInput } from "@blog/shared";
+import { adminPostSchema, type AdminTag, adminTagSchema, type Locale, type PostCreateInput, type TagInput } from "@blog/shared";
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/server";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeEach } from "vitest";
@@ -350,6 +350,13 @@ export function setupTestApp({
     return res;
   }
 
+  /** 通过 API 创建标签（文章只能引用已有标签）；只给 slug 时名称同 slug */
+  async function createTag(input: Partial<TagInput> & { slug: string }): Promise<AdminTag> {
+    const res = await request("POST", "/admin/tags", { body: { name: input.slug, ...input } });
+    if (res.status !== 201) throw new Error(`createTag failed: ${res.status} ${JSON.stringify(res.body)}`);
+    return adminTagSchema.parse(res.body);
+  }
+
   /**
    * 以某个 GitHub 用户走完整的登录流程，返回评论者 cookie（从 jar 里取走，
    * 这样同一个测试里可以有多个评论者，各自用 headers.cookie 传入）。
@@ -366,5 +373,5 @@ export function setupTestApp({
     return `__Host-commenter=${token}`;
   }
 
-  return { db, app, redis, storage, request, requestRaw, loginCommenter, fakeGitHub, createPost, translatePost, adminSessionCookie, jar, calls: fake.calls, revalidations };
+  return { db, app, redis, storage, request, requestRaw, loginCommenter, fakeGitHub, createPost, createTag, translatePost, adminSessionCookie, jar, calls: fake.calls, revalidations };
 }

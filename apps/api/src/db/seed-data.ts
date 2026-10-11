@@ -1,19 +1,26 @@
-import type { Locale, PostCreateInput } from "@blog/shared";
+import type { Locale, PostCreateInput, TagInput } from "@blog/shared";
 
 /*
  * 开发环境的初始数据（原 v0 前端的假数据）：bun run db:seed 写入本地数据库。
- * 写入时仍经过 postCreateInputSchema 校验和服务层，和 API 走同一条路径。
+ * 写入时仍经过 schema 校验和服务层，和 API 走同一条路径。文章只能引用已有标签，所以先写标签。
  */
+export const seedTags: TagInput[] = [
+  { slug: "meta", name: "关于本站" },
+  { slug: "fullstack", name: "全栈" },
+  { slug: "design", name: "设计" },
+  { slug: "css", name: "CSS" },
+  { slug: "tooling", name: "工具链" },
+  { slug: "typography", name: "排版" },
+  { slug: "security", name: "安全" },
+];
+
 export const seedPosts: PostCreateInput[] = [
   {
     slug: "why-build-a-blog-from-scratch",
     title: "为什么要从零写一个博客",
     status: "published",
     publishedAt: "2026-10-09T10:00:00+08:00",
-    tags: [
-      { slug: "meta", name: "关于本站" },
-      { slug: "fullstack", name: "全栈" },
-    ],
+    tags: ["meta", "fullstack"],
     contentMd: `现成的博客系统有很多，用 Hugo、Astro 或者一个 Notion 页面，十分钟就能上线。但这个博客的目的不是“有个博客”，而是**把 Web 全栈完整走一遍**。
 
 ## 规则只有一条
@@ -45,10 +52,7 @@ export const seedPosts: PostCreateInput[] = [
     title: "把 Apple HIG 翻译成 Web 的 design tokens",
     status: "published",
     publishedAt: "2026-10-05T21:30:00+08:00",
-    tags: [
-      { slug: "design", name: "设计" },
-      { slug: "css", name: "CSS" },
-    ],
+    tags: ["design", "css"],
     contentMd: `Apple 的 Human Interface Guidelines 是为原生 app 写的，但其中的很多原则——层级清晰、内容优先、尊重用户的系统设置——在 Web 上一样成立。难点在于把 pt、Dynamic Type、语义色这些概念翻译成 CSS。
 
 ## 字号：Dynamic Type → rem
@@ -104,10 +108,7 @@ CSS 的 \`linear()\` 函数可以用一串采样点描述任意曲线，于是�
     title: "pnpm、Bun 还是 npm：为一个 monorepo 选包管理器",
     status: "published",
     publishedAt: "2026-09-28T19:00:00+08:00",
-    tags: [
-      { slug: "tooling", name: "工具链" },
-      { slug: "fullstack", name: "全栈" },
-    ],
+    tags: ["tooling", "fullstack"],
     contentMd: `这个项目是一个 monorepo：前端、API 和共享的 schema 包放在一起。最开始的计划是 pnpm workspace，最后换成了 Bun。
 
 ## 包管理器 ≠ 运行时
@@ -135,10 +136,7 @@ linker = "isolated"
     title: "中文网页排版的几个细节",
     status: "published",
     publishedAt: "2026-09-20T14:00:00+08:00",
-    tags: [
-      { slug: "design", name: "设计" },
-      { slug: "typography", name: "排版" },
-    ],
+    tags: ["design", "typography"],
     contentMd: `中文和英文混排时，有几个细节值得单独处理。
 
 ## 行高
@@ -166,10 +164,7 @@ linker = "isolated"
     title: "Markdown 渲染为什么必须 sanitize",
     status: "published",
     publishedAt: "2026-09-12T22:15:00+08:00",
-    tags: [
-      { slug: "security", name: "安全" },
-      { slug: "fullstack", name: "全栈" },
-    ],
+    tags: ["security", "fullstack"],
     contentMd: `Markdown 允许内嵌 HTML，这意味着“渲染用户提交的 Markdown”本质上等于“渲染用户提交的 HTML”。
 
 ## 一个最简单的例子
@@ -198,7 +193,7 @@ linker = "isolated"
     title: "v1 计划：Hono + Drizzle + PostgreSQL",
     status: "draft",
     publishedAt: null,
-    tags: [{ slug: "fullstack", name: "全栈" }],
+    tags: ["fullstack"],
     contentMd: "草稿：这篇不应该出现在任何公开页面上。",
   },
 ];

@@ -34,9 +34,12 @@ export function formFromPost(post: AdminPost): PostFormValues {
 }
 
 function sameTags(a: Tag[], b: Tag[]): boolean {
-  // 顺序也算改动：标签顺序就是文章页上的显示顺序
-  return a.length === b.length && a.every((tag, i) => tag.slug === b[i]?.slug && tag.name === b[i]?.name);
+  // 顺序也算改动：标签顺序就是文章页上的显示顺序。名称在标签管理页改，这里只比 slug
+  return a.length === b.length && a.every((tag, i) => tag.slug === b[i]?.slug);
 }
+
+/** 文章只按 slug 引用标签 */
+const tagSlugs = (tags: Tag[]) => tags.map((tag) => tag.slug);
 
 export function isFormDirty(initial: PostFormValues, current: PostFormValues): boolean {
   return (
@@ -48,7 +51,7 @@ export function isFormDirty(initial: PostFormValues, current: PostFormValues): b
 }
 
 export function buildCreateInput(values: PostFormValues, status: PostStatus): PostCreateInput {
-  return { ...values, status };
+  return { ...values, tags: tagSlugs(values.tags), status };
 }
 
 /**
@@ -67,12 +70,12 @@ export function buildUpdateInput(
   if (current.title !== initial.title) input.title = current.title;
   if (current.slug !== initial.slug) input.slug = current.slug;
   if (current.contentMd !== initial.contentMd) input.contentMd = current.contentMd;
-  if (!sameTags(current.tags, initial.tags)) input.tags = current.tags;
+  if (!sameTags(current.tags, initial.tags)) input.tags = tagSlugs(current.tags);
   if (status !== initial.status) input.status = status;
   return Object.keys(input).length > 0 ? input : null;
 }
 
-/** 把 API 返回的字段路径（如 "tags.0.slug"）归到表单字段上。 */
+/** 把 API 返回的字段路径（如 "tags.0"）归到表单字段上。 */
 function fieldForPath(path: string): PostFormField | "form" {
   const head = path.split(".")[0];
   return head === "title" || head === "slug" || head === "contentMd" || head === "tags" ? head : "form";

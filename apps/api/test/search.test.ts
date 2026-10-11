@@ -7,7 +7,7 @@ import { reindexPosts } from "../src/services/posts.ts";
 import { reindexTranslations } from "../src/services/translations.ts";
 import { setupTestApp } from "./helpers.ts";
 
-const { db, request, createPost, translatePost } = setupTestApp();
+const { db, request, createPost, createTag, translatePost } = setupTestApp();
 
 async function search(q: string, locale?: string) {
   const res = await request("GET", `/search?q=${encodeURIComponent(q)}${locale ? `&locale=${locale}` : ""}`, { auth: false });
@@ -38,7 +38,8 @@ describe("GET /search", () => {
   });
 
   it("finds posts by tag name", async () => {
-    await createPost({ slug: "tagged", contentMd: "正文", tags: [{ slug: "typography", name: "排版" }], ...published });
+    await createTag({ slug: "typography", name: "排版" });
+    await createPost({ slug: "tagged", contentMd: "正文", tags: ["typography"], ...published });
     expect(await slugs("排版")).toEqual(["tagged"]);
   });
 
@@ -72,7 +73,8 @@ describe("GET /search", () => {
     expect(await slugs("旧内容")).toEqual([]);
     expect(await slugs("新内容")).toEqual(["edit"]);
 
-    await request("PATCH", `/admin/posts/${post.id}`, { body: { tags: [{ slug: "t", name: "标签名" }] } });
+    await createTag({ slug: "t", name: "标签名" });
+    await request("PATCH", `/admin/posts/${post.id}`, { body: { tags: ["t"] } });
     expect(await slugs("标签名")).toEqual(["edit"]);
     // 只改标签时标题仍然可搜（索引用的是库里的当前值）
     expect(await slugs("新标题")).toEqual(["edit"]);
@@ -80,17 +82,6 @@ describe("GET /search", () => {
     await request("PATCH", `/admin/posts/${post.id}`, { body: { title: "第三个标题" } });
     expect(await slugs("第三个")).toEqual(["edit"]);
     expect(await slugs("标签名 新内容")).toEqual(["edit"]);
-  });
-
-  it("reindexes other posts when a shared tag is renamed, without touching their updatedAt", async () => {
-    const a = await createPost({ slug: "a", contentMd: "甲", tags: [{ slug: "web", name: "网页" }], ...published });
-    const [before] = await db.select({ updatedAt: posts.updatedAt }).from(posts).where(eq(posts.id, a.id));
-    await createPost({ slug: "b", contentMd: "乙", tags: [{ slug: "web", name: "前端" }], ...published });
-
-    expect(await slugs("网页")).toEqual([]);
-    expect((await slugs("前端")).sort()).toEqual(["a", "b"]);
-    const [after] = await db.select({ updatedAt: posts.updatedAt }).from(posts).where(eq(posts.id, a.id));
-    expect(after?.updatedAt).toEqual(before?.updatedAt);
   });
 
   it("cuts snippets at word boundaries with the per-language length", async () => {
@@ -169,20 +160,23 @@ describe("GET /search in other languages", () => {
   });
 
   it("finds translations by the post's tag names, which are not translated", async () => {
-    const { id } = await createPost({ slug: "a", contentMd: "正文", tags: [{ slug: "css", name: "CSS" }], ...published });
+    await createTag({ slug: "css", name: "CSS" });
+    await createTag({ slug: "layout", name: "Layout" });
+    const { id } = await createPost({ slug: "a", contentMd: "正文", tags: ["css"], ...published });
     await translatePost(id, "en", { contentMd: "Body." });
     expect(await slugs("css", "en")).toEqual(["a"]);
 
     // 原文换了标签：译文的索引跟着重建
-    await request("PATCH", `/admin/posts/${id}`, { body: { tags: [{ slug: "layout", name: "Layout" }] } });
+    await request("PATCH", `/admin/posts/${id}`, { body: { tags: ["layout"] } });
     expect(await slugs("css", "en")).toEqual([]);
     expect(await slugs("layout", "en")).toEqual(["a"]);
   });
 
-  it("reindexes translations of other posts when a shared tag is renamed", async () => {
-    const a = await createPost({ slug: "a", contentMd: "甲", tags: [{ slug: "web", name: "Webpage" }], ...published });
+  it("reindexes translations when a tag is renamed", async () => {
+    const tag = await createTag({ slug: "web", name: "Webpage" });
+    const a = await createPost({ slug: "a", contentMd: "甲", tags: ["web"], ...published });
     await translatePost(a.id, "en", { contentMd: "A." });
-    await createPost({ slug: "b", contentMd: "乙", tags: [{ slug: "web", name: "Frontend" }], ...published });
+    await request("PATCH", `/admin/tags/${tag.id}`, { body: { name: "Frontend" } });
     expect(await slugs("webpage", "en")).toEqual([]);
     expect(await slugs("frontend", "en")).toEqual(["a"]);
   });

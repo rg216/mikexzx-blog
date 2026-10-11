@@ -1,14 +1,20 @@
-import { postCreateInputSchema, translationInputSchema } from "@blog/shared";
+import { postCreateInputSchema, tagInputSchema, translationInputSchema } from "@blog/shared";
 import { and, eq } from "drizzle-orm";
 import { sourceHash } from "../lib/source-hash.ts";
 import { createPost } from "../services/posts.ts";
 import { upsertTranslation } from "../services/translations.ts";
 import type { Db } from "./client.ts";
-import { posts, postTranslations } from "./schema.ts";
-import { seedPosts, seedTranslations } from "./seed-data.ts";
+import { posts, postTranslations, tags } from "./schema.ts";
+import { seedPosts, seedTags, seedTranslations } from "./seed-data.ts";
 
-/** 写入种子文章和译文。幂等：已存在的 slug / 译文跳过，可以反复运行 */
+/** 写入种子标签、文章和译文。幂等：已存在的标签 / slug / 译文跳过，可以反复运行 */
 export async function seedDatabase(db: Db, log: (line: string) => void = console.log): Promise<void> {
+  // 文章只能引用已有标签，先写标签
+  await db
+    .insert(tags)
+    .values(seedTags.map((tag) => tagInputSchema.parse(tag)))
+    .onConflictDoNothing();
+
   for (const input of seedPosts) {
     const data = postCreateInputSchema.parse(input);
     const [existing] = await db.select({ id: posts.id }).from(posts).where(eq(posts.slug, data.slug));

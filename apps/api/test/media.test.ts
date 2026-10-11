@@ -96,7 +96,9 @@ describe("library", () => {
 
   it("refuses duplicate folder names and moving into a missing folder", async () => {
     await request("POST", "/admin/media-folders", { body: { name: "截图" } });
-    expect((await request("POST", "/admin/media-folders", { body: { name: "截图" } })).status).toBe(409);
+    const duplicate = await request("POST", "/admin/media-folders", { body: { name: "截图" } });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body).toEqual({ error: { code: "conflict", message: "已经有同名的文件夹" } });
     const image = await upload();
     expect((await request("POST", "/admin/images/move", { body: { ids: [image.id], folderId: 999 } })).status).toBe(404);
   });

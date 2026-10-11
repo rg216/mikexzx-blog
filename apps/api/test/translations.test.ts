@@ -6,7 +6,7 @@ import { postTranslations } from "../src/db/schema.ts";
 import { sourceHash } from "../src/lib/source-hash.ts";
 import { setupTestApp } from "./helpers.ts";
 
-const { db, request, createPost, translatePost, revalidations } = setupTestApp();
+const { db, request, createPost, createTag, translatePost, revalidations } = setupTestApp();
 
 const getPost = async (id: number) => adminPostSchema.parse((await request("GET", `/admin/posts/${id}`)).body);
 const put = (id: number, locale: string, body: unknown, options: { auth?: boolean; origin?: string | null } = {}) =>
@@ -169,14 +169,16 @@ describe("translations on the admin post", () => {
   });
 
   it("keeps translatedAt when only the search index is rebuilt (tag change or rename)", async () => {
-    const a = await createPost({ slug: "a", tags: [{ slug: "web", name: "Web" }] });
+    const web = await createTag({ slug: "web", name: "Web" });
+    await createTag({ slug: "css", name: "CSS" });
+    const a = await createPost({ slug: "a", tags: ["web"] });
     await translatePost(a.id, "en");
     const old = new Date("2020-01-01T00:00:00Z");
     await db.update(postTranslations).set({ translatedAt: old });
 
-    await request("PATCH", `/admin/posts/${a.id}`, { body: { tags: [{ slug: "web", name: "Web" }, { slug: "css", name: "CSS" }] } });
-    // 另一篇文章把共用的标签改名：a 的译文索引跟着重建
-    await createPost({ slug: "b", tags: [{ slug: "web", name: "Frontend" }] });
+    await request("PATCH", `/admin/posts/${a.id}`, { body: { tags: ["web", "css"] } });
+    // 标签改名：a 的译文索引跟着重建
+    await request("PATCH", `/admin/tags/${web.id}`, { body: { name: "Frontend" } });
     const [row] = await db.select({ translatedAt: postTranslations.translatedAt }).from(postTranslations);
     expect(row?.translatedAt.toISOString()).toBe(old.toISOString());
   });

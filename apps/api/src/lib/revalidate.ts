@@ -1,4 +1,4 @@
-import { cacheTags, type Locale, locales, type PostStatus } from "@blog/shared";
+import { cacheTags, type Locale, locales, type PostStatus, REVALIDATE_MAX_TAGS } from "@blog/shared";
 
 /** 通知前端让一组缓存标签失效。实现必须吞掉错误：通知失败不能让写入失败。 */
 export type Revalidator = (tags: string[]) => Promise<void>;
@@ -9,6 +9,7 @@ export const noopRevalidator: Revalidator = async () => {};
  * 调用前端的 /hooks/revalidate。
  * 等待结果（而不是"发出去就不管"）：Serverless 函数在返回响应后可能被立即冻结，后台请求会丢；
  * 但最多等 timeoutMs，失败只记日志——前端还有一小时的定时刷新兜底。
+ * 标签多于 REVALIDATE_MAX_TAGS（如改名的标签被几十篇文章用到）时分批并行发送，总耗时仍不超过 timeoutMs。
  */
 export function createRevalidator({
   url,
@@ -21,7 +22,7 @@ export function createRevalidator({
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }): Revalidator {
-  return async (tags) => {
+  async function send(tags: string[]) {
     try {
       const res = await fetchImpl(url, {
         method: "POST",
@@ -33,6 +34,13 @@ export function createRevalidator({
     } catch (error) {
       console.warn(`revalidate ${url} failed for`, tags, error);
     }
+  }
+
+  return async (tags) => {
+    const unique = [...new Set(tags)];
+    const batches: string[][] = [];
+    for (let i = 0; i < unique.length; i += REVALIDATE_MAX_TAGS) batches.push(unique.slice(i, i + REVALIDATE_MAX_TAGS));
+    await Promise.all(batches.map(send));
   };
 }
 
@@ -72,4 +80,13 @@ export function tagsForTranslationChange({
   if (status !== "published") return [];
   const others = existedBefore !== existsAfter ? locales.filter((l) => l !== locale).map((l) => cacheTags.post(slug, l)) : [];
   return [cacheTags.posts(locale), cacheTags.post(slug, locale), ...others];
+}
+
+/**
+ * 一批已发布文章显示的内容变了（如它们用的标签改名了）：每种语言的列表和这些文章页都要失效（标签所有语言共用）。
+ * 传入的应只含已发布文章。
+ */
+export function tagsForPublishedPosts(slugs: string[]): string[] {
+  if (slugs.length === 0) return [];
+  return [...locales.map((locale) => cacheTags.posts(locale)), ...[...new Set(slugs)].flatMap((slug) => locales.map((locale) => cacheTags.post(slug, locale)))];
 }

@@ -13,11 +13,14 @@ export const cacheTags = {
   post: (slug: string, locale: Locale) => `post:${slug}:${locale}`,
 } as const;
 
+/** 一次通知最多带的标签数；更多时由 API 分批发送 */
+export const REVALIDATE_MAX_TAGS = 50;
+
 /** API → 前端 /hooks/revalidate 的请求体 */
 export const revalidateRequestSchema = z.strictObject({
   tags: z
     .array(z.string().min(1).max(256))
     .min(1)
-    .max(50),
+    .max(REVALIDATE_MAX_TAGS),
 });
 export type RevalidateRequest = z.infer<typeof revalidateRequestSchema>;

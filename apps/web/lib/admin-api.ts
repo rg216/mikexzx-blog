@@ -34,6 +34,10 @@ import {
   translationStreamEventSchema,
   type TranslationTitleResult,
   translationTitleResultSchema,
+  type AdminTag,
+  adminTagSchema,
+  type TagInput,
+  type TagUpdateInput,
 } from "@blog/shared";
 import { z } from "zod";
 import { LineDecodeError, readLines } from "./ndjson";
@@ -140,6 +144,7 @@ const commenterListSchema = z.array(adminCommenterSchema);
 const pendingCountSchema = z.object({ count: z.int().nonnegative() });
 const imageListSchema = z.array(adminImageSchema);
 const folderListSchema = z.array(mediaFolderSchema);
+const tagListSchema = z.array(adminTagSchema);
 const deletedSchema = z.object({ deleted: z.int().nonnegative() });
 
 /** 一段正文翻译完成：done 事件（stopReason 不一定是 end_turn，由调用方判断成败，见 translation-generation.ts） */
@@ -304,6 +309,28 @@ export function createAdminApi(options: JsonClientOptions = {}) {
       }
       // 流正常结束却没有 done：服务端函数被掐断（超时）之类，这一段不完整
       throw new AdminApiError(res.status, "network_error", streamBroken);
+    },
+
+    /** 全部标签（含没有文章用的），按使用次数排序 */
+    async listTags(): Promise<AdminTag[]> {
+      return parseJson(await request("GET", "/tags"), tagListSchema);
+    },
+
+    async createTag(input: TagInput): Promise<AdminTag> {
+      return parseJson(await request("POST", "/tags", input), adminTagSchema);
+    },
+
+    async updateTag(id: number, input: TagUpdateInput): Promise<AdminTag> {
+      return parseJson(await request("PATCH", `/tags/${id}`, input), adminTagSchema);
+    },
+
+    async deleteTag(id: number): Promise<void> {
+      await request("DELETE", `/tags/${id}`);
+    },
+
+    /** 把标签 id 合并进 into，返回合并后的 into */
+    async mergeTag(id: number, into: number): Promise<AdminTag> {
+      return parseJson(await request("POST", `/tags/${id}/merge`, { into }), adminTagSchema);
     },
 
     /** 申请上传一张图片：拿到预签名 URL（见 lib/image-upload.ts） */

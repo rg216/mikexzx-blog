@@ -13,6 +13,7 @@ import { adminLocaleName, formatDateTime } from "@/lib/admin-format";
 import { postPath } from "@/lib/i18n/paths";
 import { localeShortLabel } from "@/lib/translation-form";
 import styles from "./PostList.module.css";
+import { PostSectionTabs } from "./PostSectionTabs";
 import { StatusBadge } from "./StatusBadge";
 
 type ListState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; posts: AdminPost[] };
@@ -92,6 +93,7 @@ export function PostList() {
 
   return (
     <div className={styles.page}>
+      <PostSectionTabs />
       <header className={styles.header}>
         <h1 ref={headingRef} tabIndex={-1} className={styles.title}>
           文章

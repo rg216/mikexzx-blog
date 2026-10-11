@@ -21,6 +21,7 @@ import type { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { posts, postTags, postTranslations, tags } from "../db/schema.ts";
 import { type Cursor, encodeCursor } from "../lib/cursor.ts";
+import { HttpError } from "../lib/errors.ts";
 import { excerptFromMarkdown } from "../lib/excerpt.ts";
 import { sourceHash } from "../lib/source-hash.ts";
 import { imageMetaForPost, syncPostImages } from "./images.ts";
@@ -228,60 +229,35 @@ export async function getPostById(db: Executor, id: number): Promise<AdminPost |
   return post ?? null;
 }
 
-/** 同一 slug 只保留第一次出现的。注意不能用 new Map(entries)：重复 key 会被后面的值覆盖 */
-function uniqueTags(postTagList: Tag[]): Tag[] {
-  const bySlug = new Map<string, Tag>();
-  for (const tag of postTagList) if (!bySlug.has(tag.slug)) bySlug.set(tag.slug, tag);
-  return [...bySlug.values()];
-}
+type ResolvedTag = Tag & { id: number };
 
 /**
- * 用文章的标签列表整体替换旧的关联；标签本身按 slug upsert（同 slug 以最新名称为准）。
- * 标签改名会影响所有用到它的文章的搜索索引，返回这些"其他文章"的 id，由调用方重建索引。
+ * 把文章提交的标签 slug 换成已有的标签（去重、保持顺序）。文章只能引用已有标签：不存在的报校验错误，不会顺手创建。
+ * FOR SHARE 锁住这些标签行：事务结束前别的请求删不掉它们，否则插入关联时会撞外键。
  */
-async function replaceTags(tx: Executor, postId: number, postTagList: Tag[]): Promise<number[]> {
-  const unique = uniqueTags(postTagList);
-
-  await tx.delete(postTags).where(eq(postTags.postId, postId));
+async function resolveTags(tx: Executor, slugs: string[]): Promise<ResolvedTag[]> {
+  const unique = [...new Set(slugs)];
   if (unique.length === 0) return [];
-
-  const before = await tx
+  const rows = await tx
     .select({ id: tags.id, slug: tags.slug, name: tags.name })
     .from(tags)
-    .where(
-      inArray(
-        tags.slug,
-        unique.map((t) => t.slug),
-      ),
-    );
-  const nameBySlug = new Map(unique.map((t) => [t.slug, t.name]));
-  const renamedIds = before.filter((t) => nameBySlug.get(t.slug) !== t.name).map((t) => t.id);
+    .where(inArray(tags.slug, unique))
+    .for("share");
+  const bySlug = new Map(rows.map((row) => [row.slug, row]));
+  const missing = slugs.flatMap((slug, index) => (bySlug.has(slug) ? [] : [{ path: `tags.${index}`, message: `标签 "${slug}" 不存在` }]));
+  if (missing.length > 0) throw new HttpError(400, "validation_error", "请先在标签管理里创建标签", missing);
+  return unique.map((slug) => bySlug.get(slug) as ResolvedTag);
+}
 
-  const saved = await tx
-    .insert(tags)
-    .values(unique)
-    .onConflictDoUpdate({ target: tags.slug, set: { name: sql`excluded.name` } })
-    .returning({ id: tags.id, slug: tags.slug });
-  const idBySlug = new Map(saved.map((t) => [t.slug, t.id]));
-
-  await tx.insert(postTags).values(
-    unique.map((tag, position) => {
-      const tagId = idBySlug.get(tag.slug);
-      if (tagId === undefined) throw new Error(`upsert did not return tag "${tag.slug}"`);
-      return { postId, tagId, position };
-    }),
-  );
-
-  if (renamedIds.length === 0) return [];
-  const affected = await tx
-    .selectDistinct({ postId: postTags.postId })
-    .from(postTags)
-    .where(and(inArray(postTags.tagId, renamedIds), ne(postTags.postId, postId)));
-  return affected.map((r) => r.postId);
+/** 用文章的标签列表整体替换旧的关联，position 记录顺序 */
+async function replaceTags(tx: Executor, postId: number, postTagList: ResolvedTag[]): Promise<void> {
+  await tx.delete(postTags).where(eq(postTags.postId, postId));
+  if (postTagList.length === 0) return;
+  await tx.insert(postTags).values(postTagList.map((tag, position) => ({ postId, tagId: tag.id, position })));
 }
 
 /**
- * 重建符合条件的文章的搜索索引，返回处理的篇数。用于：标签改名影响到的其他文章；迁移后补齐 search_vector 为 NULL 的文章。
+ * 重建符合条件的文章的搜索索引，返回处理的篇数。用于：标签改名影响到的文章；迁移后补齐 search_vector 为 NULL 的文章。
  * 不改 updated_at——这不是作者的编辑。
  */
 export async function reindexPosts(db: Executor, where: SQL): Promise<number> {
@@ -299,8 +275,8 @@ export async function reindexPosts(db: Executor, where: SQL): Promise<number> {
   return rows.length;
 }
 
-/** 标签改名影响到的其他文章：原文和译文的索引都要重建 */
-async function reindexForRenamedTags(tx: Executor, postIds: number[]): Promise<void> {
+/** 标签改名、合并、删除影响到的文章（见 tags.ts）：原文和译文的索引都要重建 */
+export async function reindexPostsAndTranslations(tx: Executor, postIds: number[]): Promise<void> {
   if (postIds.length === 0) return;
   await reindexPosts(tx, inArray(posts.id, postIds));
   await reindexTranslationsOf(tx, postIds);
@@ -308,6 +284,7 @@ async function reindexForRenamedTags(tx: Executor, postIds: number[]): Promise<v
 
 export async function createPost(db: Db, data: CreateData): Promise<AdminPost> {
   return db.transaction(async (tx) => {
+    const postTagList = await resolveTags(tx, data.tags);
     const [row] = await tx
       .insert(posts)
       .values({
@@ -316,7 +293,7 @@ export async function createPost(db: Db, data: CreateData): Promise<AdminPost> {
         contentMd: data.contentMd,
         // 新文章的原文语言目前固定为默认值（posts.source_locale 的列默认值），摘要长度按它取
         excerpt: excerptOf(data.contentMd, defaultSourceLocale),
-        searchVector: searchVectorOf({ title: data.title, contentMd: data.contentMd, tags: uniqueTags(data.tags) }),
+        searchVector: searchVectorOf({ title: data.title, contentMd: data.contentMd, tags: postTagList }),
         status: data.status,
         // 显式给了就用（导入旧文章）；否则发布时取当前时间，草稿为 null
         publishedAt: data.publishedAt
@@ -328,8 +305,7 @@ export async function createPost(db: Db, data: CreateData): Promise<AdminPost> {
       .returning({ id: posts.id });
     if (!row) throw new Error("insert returned no row");
 
-    const affected = await replaceTags(tx, row.id, data.tags);
-    await reindexForRenamedTags(tx, affected);
+    await replaceTags(tx, row.id, postTagList);
     await syncPostImages(tx, row.id);
     const created = await getPostById(tx, row.id);
     if (!created) throw new Error("created post not found");
@@ -352,14 +328,15 @@ export async function updatePost(
 
     const { tags: newTags, publishedAt, contentMd, ...fields } = data;
     const firstPublish = fields.status === "published" && current.publishedAt === null && publishedAt === undefined;
+    const postTagList = newTags !== undefined ? await resolveTags(tx, newTags) : undefined;
 
     // 标题、正文、标签任何一个变了都要重建索引；没传的字段用当前值
     const searchVector =
-      fields.title !== undefined || contentMd !== undefined || newTags !== undefined
+      fields.title !== undefined || contentMd !== undefined || postTagList !== undefined
         ? searchVectorOf({
             title: fields.title ?? current.title,
             contentMd: contentMd ?? current.contentMd,
-            tags: newTags !== undefined ? uniqueTags(newTags) : ((await tagsByPostId(tx, [id])).get(id) ?? []),
+            tags: postTagList ?? (await tagsByPostId(tx, [id])).get(id) ?? [],
           })
         : undefined;
 
@@ -376,10 +353,11 @@ export async function updatePost(
       })
       .where(eq(posts.id, id));
 
-    const affected = newTags !== undefined ? await replaceTags(tx, id, newTags) : [];
-    await reindexForRenamedTags(tx, affected);
-    // 标签也在译文的搜索索引里（B 权重）：这篇文章的标签变了，它的译文也要重建
-    if (newTags !== undefined) await reindexTranslationsOf(tx, [id]);
+    if (postTagList !== undefined) {
+      await replaceTags(tx, id, postTagList);
+      // 标签也在译文的搜索索引里（B 权重）：这篇文章的标签变了，它的译文也要重建
+      await reindexTranslationsOf(tx, [id]);
+    }
     if (contentMd !== undefined) await syncPostImages(tx, id);
     const post = await getPostById(tx, id);
     if (!post) throw new Error("updated post not found");

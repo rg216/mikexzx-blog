@@ -12,6 +12,7 @@ import { deleteTranslation, getTranslation, upsertTranslation } from "../service
 import type { ObjectStorage } from "../storage.ts";
 import type { GitHub } from "../auth/github.ts";
 import { adminCommentRoutes } from "./admin-comments.ts";
+import { adminTagRoutes } from "./admin-tags.ts";
 import { imageRoutes, mediaFolderRoutes } from "./images.ts";
 import { type TranslationDeps, translateRoutes } from "./translate.ts";
 
@@ -87,6 +88,7 @@ export function adminRoutes(
     })
     // ---------- 大模型翻译（v5.5）：生成的译文只回给编辑器，保存仍走上面的 PUT ----------
     .route("/", translateRoutes(db, translation, limiter))
+    .route("/tags", adminTagRoutes(db, revalidate))
     .route("/images", imageRoutes(db, storage))
     .route("/media-folders", mediaFolderRoutes(db))
     .route("/", adminCommentRoutes(db, github));

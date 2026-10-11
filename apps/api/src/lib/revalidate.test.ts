@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRevalidator, tagsForChange, tagsForTranslationChange } from "./revalidate.ts";
+import { createRevalidator, tagsForChange, tagsForPublishedPosts, tagsForTranslationChange } from "./revalidate.ts";
 
 describe("tagsForChange", () => {
   const draft = (slug: string) => ({ slug, status: "draft" as const });
@@ -46,6 +46,26 @@ describe("tagsForTranslationChange", () => {
   });
 });
 
+describe("tagsForPublishedPosts", () => {
+  it("invalidates every language's lists and each post page", () => {
+    expect(tagsForPublishedPosts(["a", "b", "a"])).toEqual([
+      "posts:zh",
+      "posts:en",
+      "posts:ja",
+      "post:a:zh",
+      "post:a:en",
+      "post:a:ja",
+      "post:b:zh",
+      "post:b:en",
+      "post:b:ja",
+    ]);
+  });
+
+  it("does nothing when no published post is affected", () => {
+    expect(tagsForPublishedPosts([])).toEqual([]);
+  });
+});
+
 describe("createRevalidator", () => {
   it("POSTs the tags with the shared secret", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
@@ -56,6 +76,16 @@ describe("createRevalidator", () => {
     expect(init?.method).toBe("POST");
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer s3cret");
     expect(init?.body).toBe(JSON.stringify({ tags: ["posts"] }));
+  });
+
+  it("splits long tag lists into batches the web app accepts", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    const tags = ["posts:zh", ...Array.from({ length: 119 }, (_, i) => `post:p${i}:zh`), "posts:zh"];
+    await createRevalidator({ url: "https://x", secret: "s", fetchImpl })(tags);
+
+    const sent = fetchImpl.mock.calls.map(([, init]) => (JSON.parse(String(init?.body)) as { tags: string[] }).tags);
+    expect(sent.map((batch) => batch.length)).toEqual([50, 50, 20]);
+    expect(sent.flat()).toEqual([...new Set(tags)]);
   });
 
   it("never throws when the web app is down or rejects the call", async () => {

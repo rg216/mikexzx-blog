@@ -33,16 +33,17 @@ describe("buildUpdateInput", () => {
     expect(buildUpdateInput(initial, { ...initial }, "published")).toEqual({ status: "published" });
   });
 
-  it("treats tag edits, reordering and renames as changes, but not an equal copy", () => {
+  it("sends tag slugs when tags are added, removed or reordered, but not for an equal copy", () => {
     const two = [
       { slug: "a", name: "A" },
       { slug: "b", name: "B" },
     ];
     const base = { ...initial, tags: two };
     expect(buildUpdateInput(base, { ...base, tags: two.map((t) => ({ ...t })) }, "draft")).toBeNull();
-    expect(buildUpdateInput(base, { ...base, tags: [...two].reverse() }, "draft")).toEqual({ tags: [...two].reverse() });
-    expect(buildUpdateInput(base, { ...base, tags: [{ slug: "a", name: "A2" }, two[1]!] }, "draft")).toHaveProperty("tags");
+    expect(buildUpdateInput(base, { ...base, tags: [...two].reverse() }, "draft")).toEqual({ tags: ["b", "a"] });
     expect(buildUpdateInput(base, { ...base, tags: [] }, "draft")).toEqual({ tags: [] });
+    // 名称在标签管理页改，编辑器里不算文章的改动
+    expect(buildUpdateInput(base, { ...base, tags: [{ slug: "a", name: "A2" }, two[1]!] }, "draft")).toBeNull();
   });
 });
 
@@ -60,10 +61,10 @@ describe("issuesToFormErrors", () => {
       issuesToFormErrors([
         { path: "slug", message: "格式不对" },
         { path: "slug", message: "太长" },
-        { path: "tags.1.name", message: "不能为空" },
+        { path: "tags.1", message: '标签 "gone" 不存在' },
         { path: "", message: "至少需要更新一个字段" },
       ]),
-    ).toEqual({ slug: "格式不对", tags: "第 2 个标签：不能为空", form: "至少需要更新一个字段" });
+    ).toEqual({ slug: "格式不对", tags: '第 2 个标签：标签 "gone" 不存在', form: "至少需要更新一个字段" });
   });
 });
 
@@ -79,11 +80,11 @@ describe("validatePostForm", () => {
 
   it("translates length errors into specific Chinese messages", () => {
     const errors = validatePostForm(
-      { ...initial, title: "长".repeat(201), tags: [{ slug: "ok", name: "" }] },
+      { ...initial, title: "长".repeat(201), tags: Array.from({ length: 21 }, (_, i) => ({ slug: `t${i}`, name: `T${i}` })) },
       "draft",
     );
     expect(errors.title).toBe("标题不能超过 200 个字符");
-    expect(errors.tags).toBe("第 1 个标签：请填写名称");
+    expect(errors.tags).toBe("标签最多 20 个");
   });
 });
 

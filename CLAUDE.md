@@ -69,6 +69,13 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 本地 RustFS（MinIO 社区版已停止维护、镜像下架）；线上 Cloudflare R2：region `auto`，存储桶需配置 CORS（允许前端源 PUT，AllowedHeaders 含 content-type、cache-control），公开访问用 r2.dev 地址（有速率限制，以后有自己的域名后改绑自定义域名）
 - 环境变量 `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL`，要么全设要么全不设
 
+## 标签
+- 集中管理：后台 `/admin/posts/tags`（"文章"栏目下的二级页面，不占顶部导航）新建、改名（名称 / slug）、合并、删除；编辑文章时只能从已有标签里选，不能顺手新建——避免意思重复的标签越积越多
+- 文章的输入里 `tags` 是 slug 数组，引用不存在的标签返回 400（`tags.N` 路径），不会自动创建；取标签时 `FOR SHARE` 锁住，防止并发删除撞外键
+- 名称不分大小写唯一（`lower(name)` 唯一索引），slug 唯一；唯一约束冲突按约束名给出具体提示（`lib/errors.ts` 的 `uniqueViolationMessages`）
+- 标签不翻译，所有语言共用。标签名在原文和译文的搜索索引里，也显示在每种语言的文章页上：改名、合并、删除后重建用到它的文章及其译文的索引（不改 `updated_at` / `translated_at`），并刷新这些已发布文章在每种语言下的页面和列表；缓存标签多于 50 个（`REVALIDATE_MAX_TAGS`）时 revalidate 分批发送
+- 合并：用到 A 的文章改用 B（保持原位置），同时有 A、B 的只去掉 A，然后删除 A
+
 ## 评论（v4c）
 - 评论者用 GitHub 登录（GitHub App，不申请任何权限，只读公开资料；一个 App 配本地和线上两个回调地址），与管理员的 Passkey 体系完全分开：
   - 独立的表（`commenters`、`commenter_sessions`）和 cookie（`__Host-commenter`）；评论者 session 访问不了 `/admin/*`
@@ -170,7 +177,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`
 - `posts`：slug, title, content_md, excerpt, status (draft | published), published_at, search_vector, source_locale（默认 zh）
 - `post_translations`：(post_id, locale) 主键，title, content_md, excerpt, source_hash, origin（machine | human）, model, translated_at, search_vector；locale 只有格式 CHECK（加语言不需要迁移）；`db:migrate` 同样补齐 search_vector 为 NULL 的译文
-- `tags` + `post_tags`
+- `tags`（slug、name 均唯一，name 不分大小写）+ `post_tags`（position 为文章内顺序）
 - `commenters`（GitHub 用户，trust：default | trusted | blocked）、`commenter_sessions`、`oauth_states`
 - `comments`：post_id, commenter_id, root_id / parent_id（楼中楼）, body, status（pending | approved | rejected）
 - `post_views`

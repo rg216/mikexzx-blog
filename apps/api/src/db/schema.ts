@@ -1,7 +1,7 @@
 import { defaultSourceLocale, type Locale } from "@blog/shared";
 import { sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { bigint, boolean, check, customType, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, customType, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 // 列名由 casing: "snake_case" 自动转换：contentMd → content_md。
 
@@ -99,11 +99,16 @@ export const postTranslations = pgTable(
   ],
 );
 
-export const tags = pgTable("tags", {
-  id: integer().primaryKey().generatedAlwaysAsIdentity(),
-  slug: text().notNull().unique(),
-  name: text().notNull(),
-});
+export const tags = pgTable(
+  "tags",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    slug: text().notNull().unique(),
+    name: text().notNull(),
+  },
+  // 名称也不能重复，且不分大小写："CSS" 和 "css" 在列表里看起来就是同一个标签
+  (t) => [uniqueIndex("tags_name_lower_idx").on(sql`lower(${t.name})`)],
+);
 
 export const postTags = pgTable(
   "post_tags",

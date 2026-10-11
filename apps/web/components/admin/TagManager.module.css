@@ -1,0 +1,176 @@
+.page {
+  max-width: var(--admin-list-width);
+  margin-inline: auto;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.title {
+  font-size: var(--font-size-large-title);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 标题只在删除、合并后接收程序化焦点，不需要焦点环 */
+.title:focus {
+  outline: none;
+}
+
+.intro {
+  margin-bottom: var(--space-3);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding-block: var(--space-8);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-8) var(--space-2);
+  border-radius: var(--radius-lg);
+  background: var(--color-secondary-background);
+  text-align: center;
+}
+
+.emptyIcon {
+  width: var(--space-6);
+  height: var(--space-6);
+  margin-bottom: var(--space-1);
+  color: var(--color-secondary-label);
+  stroke-width: 1.5;
+}
+
+.emptyTitle {
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-semibold);
+}
+
+.emptyText {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+/* ---------- 列表 ---------- */
+
+.list {
+  padding: 0;
+  border-top: 0.5px solid var(--color-separator);
+  list-style: none;
+}
+
+/* 窄屏：名称 + slug 在上，使用情况在下，按钮在右；宽屏三列一行 */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "main actions"
+    "usage actions";
+  align-items: center;
+  column-gap: var(--space-1);
+  row-gap: var(--space-0-5);
+  padding-block: var(--space-1);
+  border-bottom: 0.5px solid var(--color-separator);
+}
+
+.main {
+  grid-area: main;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-1);
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.slug {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  overflow-wrap: anywhere;
+}
+
+.usage {
+  grid-area: usage;
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+}
+
+.actions {
+  grid-area: actions;
+  display: flex;
+}
+
+@media (min-width: 46rem) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) 14rem auto;
+    grid-template-areas: "main usage actions";
+    column-gap: var(--space-2);
+  }
+
+  .usage {
+    font-size: var(--font-size-subhead);
+  }
+}
+
+/* ---------- 对话框 ---------- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+}
+
+.form > :not(button) {
+  align-self: stretch;
+}
+
+.note {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+.selectField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* 和 TextField 的 label 同样式 */
+.selectLabel {
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.selectField select {
+  min-height: var(--hit-target);
+  padding-inline: var(--space-1);
+  border: 1px solid var(--color-field-border);
+  border-radius: var(--radius-md);
+  background: var(--color-field-background);
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+}

@@ -24,10 +24,25 @@ export class HttpError extends Error {
   }
 }
 
-/** 沿着 cause 链找 PostgreSQL 错误码（Drizzle 会把驱动的错误包一层）。 */
-export function pgErrorCode(error: unknown): string | undefined {
+/** 沿着 cause 链找 PostgreSQL 的错误（Drizzle 会把驱动的错误包一层），返回错误码和违反的约束名。 */
+export function pgErrorOf(error: unknown): { code: string; constraint: string | undefined } | undefined {
   for (let e: unknown = error; e instanceof Error; e = e.cause) {
-    if ("code" in e && typeof e.code === "string" && /^[0-9A-Z]{5}$/.test(e.code)) return e.code;
+    if ("code" in e && typeof e.code === "string" && /^[0-9A-Z]{5}$/.test(e.code)) {
+      const constraint = "constraint" in e && typeof e.constraint === "string" ? e.constraint : undefined;
+      return { code: e.code, constraint };
+    }
   }
   return undefined;
+}
+
+/** 唯一约束被违反时给用户看的说明，按约束名（见 schema.ts / 迁移文件） */
+const uniqueViolationMessages: Record<string, string> = {
+  posts_slug_unique: "slug 已被其他文章使用",
+  tags_slug_unique: "已经有使用这个 slug 的标签",
+  tags_name_lower_idx: "已经有同名的标签",
+  media_folders_name_unique: "已经有同名的文件夹",
+};
+
+export function uniqueViolationMessage(constraint: string | undefined): string {
+  return (constraint && uniqueViolationMessages[constraint]) || "与已有的数据重复";
 }

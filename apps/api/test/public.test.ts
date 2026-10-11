@@ -5,7 +5,7 @@ import { z } from "zod";
 import { posts, postTranslations } from "../src/db/schema.ts";
 import { setupTestApp } from "./helpers.ts";
 
-const { db, request, createPost, translatePost } = setupTestApp();
+const { db, request, createPost, createTag, translatePost } = setupTestApp();
 
 const listIn = async (locale: string) => postSummaryPageSchema.parse((await request("GET", `/posts?locale=${locale}`, { auth: false })).body).items;
 const postIn = async (slug: string, locale: string) => publicPostSchema.parse((await request("GET", `/posts/${slug}?locale=${locale}`, { auth: false })).body);
@@ -58,15 +58,9 @@ describe("GET /posts", () => {
 
 describe("GET /posts/:slug", () => {
   it("returns a published post with content and tags in author order", async () => {
-    await createPost({
-      slug: "hello",
-      status: "published",
-      contentMd: "第一段。\n\n第二段。",
-      tags: [
-        { slug: "zeta", name: "Z" },
-        { slug: "alpha", name: "A" },
-      ],
-    });
+    await createTag({ slug: "zeta", name: "Z" });
+    await createTag({ slug: "alpha", name: "A" });
+    await createPost({ slug: "hello", status: "published", contentMd: "第一段。\n\n第二段。", tags: ["zeta", "alpha"] });
 
     const res = await request("GET", "/posts/hello", { auth: false });
     expect(res.status).toBe(200);
@@ -94,9 +88,10 @@ describe("GET /tags", () => {
   it("counts published posts per tag, ignoring drafts", async () => {
     const fullstack = { slug: "fullstack", name: "全栈" };
     const design = { slug: "design", name: "设计" };
-    await createPost({ slug: "p1", status: "published", tags: [fullstack, design] });
-    await createPost({ slug: "p2", status: "published", tags: [fullstack] });
-    await createPost({ slug: "d1", status: "draft", tags: [fullstack, { slug: "secret", name: "秘密" }] });
+    for (const tag of [fullstack, design, { slug: "secret", name: "秘密" }, { slug: "unused" }]) await createTag(tag);
+    await createPost({ slug: "p1", status: "published", tags: ["fullstack", "design"] });
+    await createPost({ slug: "p2", status: "published", tags: ["fullstack"] });
+    await createPost({ slug: "d1", status: "draft", tags: ["fullstack", "secret"] });
 
     const res = await request("GET", "/tags", { auth: false });
     expect(z.array(tagWithCountSchema).parse(res.body)).toEqual([
@@ -146,7 +141,8 @@ describe("languages", () => {
   });
 
   it("returns the translation of a post with its translation status and available languages", async () => {
-    const { id } = await createPost({ slug: "a", title: "标题", contentMd: "正文。", status: "published", tags: [{ slug: "t", name: "标签" }] });
+    await createTag({ slug: "t", name: "标签" });
+    const { id } = await createPost({ slug: "a", title: "标题", contentMd: "正文。", status: "published", tags: ["t"] });
     await translatePost(id, "ja", { title: "タイトル", contentMd: "本文。" });
 
     const post = await postIn("a", "ja");
@@ -184,8 +180,9 @@ describe("languages", () => {
 
   it("counts tags per language, only over posts visible in it", async () => {
     const shared = { slug: "shared", name: "共用" };
-    const a = await createPost({ slug: "a", status: "published", tags: [shared, { slug: "only-a", name: "甲" }] });
-    await createPost({ slug: "b", status: "published", tags: [shared, { slug: "only-b", name: "乙" }] });
+    for (const tag of [shared, { slug: "only-a", name: "甲" }, { slug: "only-b", name: "乙" }]) await createTag(tag);
+    const a = await createPost({ slug: "a", status: "published", tags: ["shared", "only-a"] });
+    await createPost({ slug: "b", status: "published", tags: ["shared", "only-b"] });
     await translatePost(a.id, "en");
 
     expect(await tagsIn("en")).toEqual([
@@ -214,7 +211,8 @@ describe("languages", () => {
 
   it("always shows the original in its own language, even if a same-language translation slipped into the database", async () => {
     // API 拒绝为原文语言保存译文；这里直接写库，验证查询本身也不会让这种行取代原文
-    const { id } = await createPost({ slug: "a", title: "原文标题", status: "published", tags: [{ slug: "t", name: "T" }] });
+    await createTag({ slug: "t", name: "T" });
+    const { id } = await createPost({ slug: "a", title: "原文标题", status: "published", tags: ["t"] });
     await db.insert(postTranslations).values({ postId: id, locale: "zh", title: "冒牌", contentMd: "x", excerpt: "x", sourceHash: "0".repeat(64), origin: "human" });
     expect((await listIn("zh")).map((p) => p.title)).toEqual(["原文标题"]);
     expect(await postIn("a", "zh")).toMatchObject({ title: "原文标题", translation: null });

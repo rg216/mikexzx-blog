@@ -1,11 +1,11 @@
-import { adminPostSchema } from "@blog/shared";
+import { adminPostSchema, adminTagSchema } from "@blog/shared";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { posts } from "../src/db/schema.ts";
 import { setupTestApp, WEB_ORIGIN } from "./helpers.ts";
 
-const { app, db, request, createPost, adminSessionCookie, revalidations } = setupTestApp();
+const { app, db, request, createPost, createTag, adminSessionCookie, revalidations } = setupTestApp();
 
 describe("authentication", () => {
   it("rejects requests without a session", async () => {
@@ -81,23 +81,25 @@ describe("POST /admin/posts", () => {
     expect(res.body).toMatchObject({ error: { code: "conflict" } });
   });
 
-  it("upserts tags by slug and de-duplicates them within a post", async () => {
-    await createPost({ slug: "p1", tags: [{ slug: "css", name: "css" }] });
+  it("links existing tags in the given order and de-duplicates them", async () => {
+    await createTag({ slug: "css", name: "CSS" });
+    await createTag({ slug: "design", name: "设计" });
     const res = await request("POST", "/admin/posts", {
-      body: {
-        slug: "p2",
-        title: "p2",
-        contentMd: "x",
-        tags: [
-          { slug: "css", name: "CSS" },
-          { slug: "css", name: "duplicate" },
-        ],
-      },
+      body: { slug: "p", title: "p", contentMd: "x", tags: ["design", "css", "design"] },
     });
-    expect(adminPostSchema.parse(res.body).tags).toEqual([{ slug: "css", name: "CSS" }]);
-    // 同一个标签，名称以最新一次写入为准
-    const first = adminPostSchema.parse((await request("GET", "/admin/posts/1")).body);
-    expect(first.tags).toEqual([{ slug: "css", name: "CSS" }]);
+    expect(adminPostSchema.parse(res.body).tags).toEqual([
+      { slug: "design", name: "设计" },
+      { slug: "css", name: "CSS" },
+    ]);
+  });
+
+  it("refuses unknown tags instead of creating them", async () => {
+    await createTag({ slug: "css" });
+    const res = await request("POST", "/admin/posts", { body: { slug: "p", title: "p", contentMd: "x", tags: ["css", "nope"] } });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: { code: "validation_error", issues: [{ path: "tags.1" }] } });
+    expect((await request("GET", "/admin/posts")).body).toEqual([]);
+    expect(z.array(adminTagSchema).parse((await request("GET", "/admin/tags")).body).map((t) => t.slug)).toEqual(["css"]);
   });
 });
 
@@ -145,12 +147,18 @@ describe("PATCH /admin/posts/:id", () => {
   });
 
   it("replaces tags when given, keeps them when omitted", async () => {
-    const { id } = await createPost({ slug: "p", tags: [{ slug: "a", name: "A" }] });
+    await createTag({ slug: "a", name: "A" });
+    await createTag({ slug: "b", name: "B" });
+    const { id } = await createPost({ slug: "p", tags: ["a"] });
     await request("PATCH", `/admin/posts/${id}`, { body: { title: "t" } });
     expect(adminPostSchema.parse((await request("GET", `/admin/posts/${id}`)).body).tags).toEqual([{ slug: "a", name: "A" }]);
 
-    const res = await request("PATCH", `/admin/posts/${id}`, { body: { tags: [{ slug: "b", name: "B" }] } });
+    const res = await request("PATCH", `/admin/posts/${id}`, { body: { tags: ["b"] } });
     expect(adminPostSchema.parse(res.body).tags).toEqual([{ slug: "b", name: "B" }]);
+
+    const refused = await request("PATCH", `/admin/posts/${id}`, { body: { title: "不会保存", tags: ["missing"] } });
+    expect(refused.status).toBe(400);
+    expect(adminPostSchema.parse((await request("GET", `/admin/posts/${id}`)).body)).toMatchObject({ title: "t", tags: [{ slug: "b" }] });
   });
 
   it("rejects clearing publishedAt on a published post (database CHECK constraint)", async () => {
@@ -188,13 +196,16 @@ describe("GET / DELETE /admin/posts/:id", () => {
   });
 
   it("deletes a post and its tag links, then 404s", async () => {
-    const { id } = await createPost({ slug: "p", status: "published", tags: [{ slug: "a", name: "A" }] });
+    await createTag({ slug: "a" });
+    const { id } = await createPost({ slug: "p", status: "published", tags: ["a"] });
     const res = await request("DELETE", `/admin/posts/${id}`);
     expect(res.status).toBe(204);
     expect(res.body).toBeNull();
     expect((await request("GET", `/admin/posts/${id}`)).status).toBe(404);
     expect((await request("DELETE", `/admin/posts/${id}`)).status).toBe(404);
     expect((await request("GET", "/tags", { auth: false })).body).toEqual([]);
+    // 标签本身留着，只是没有文章用了
+    expect((await request("GET", "/admin/tags")).body).toMatchObject([{ slug: "a", postCount: 0 }]);
   });
 
   it.each([["abc"], ["0"], ["-1"], ["1.5"], ["99999999999"]])("rejects id %s with 400", async (id) => {
