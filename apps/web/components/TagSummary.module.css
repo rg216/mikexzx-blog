@@ -1,27 +1,37 @@
+/* 圆角按钮流式排列：标签多了也只占几行，比一行一个省空间 */
 .list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
   padding: 0;
   list-style: none;
 }
 
-.item + .item {
-  border-top: 0.5px solid var(--color-separator);
-}
-
-/* 整行是链接：高度 ≥ 44px */
-.row {
-  display: flex;
+/* 和搜索页的标签筛选按钮同一种外观；整个按钮是链接，高度 ≥ 44px */
+.chip {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-0-5);
   min-height: var(--hit-target);
+  padding-inline: var(--space-1-5);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
   color: var(--color-label);
   font-size: var(--font-size-subhead);
   text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.name::before {
+  content: "#";
+  content: "#" / ""; /* 斜杠后是替代文本：空字符串让读屏软件跳过这个装饰性的 # */
+  color: var(--color-tertiary-label);
 }
 
 @media (hover: hover) {
-  .row:hover {
-    color: var(--color-accent);
+  .chip:hover {
+    background: var(--color-fill-hover);
   }
 }
 
