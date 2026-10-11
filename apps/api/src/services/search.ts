@@ -58,6 +58,7 @@ export async function searchPosts(db: Db, query: string, locale: Locale): Promis
   const tagMap = await tagsByPostId(
     db,
     rows.map((r) => r.id),
+    locale,
   );
 
   // 摘要在查询时现算（最多 20 篇，每篇解析一次 Markdown），不再存一份纯文本，省得多一个要保持同步的派生列。

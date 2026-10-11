@@ -64,7 +64,7 @@ export const translationOrigin = pgEnum("translation_origin", ["machine", "human
 
 /**
  * 文章的译文（v4.5）。posts 本身就是原文；每种其他语言最多一篇译文。
- * 译文没有单独的发布状态：文章已发布时，它的译文对读者可见。标签不翻译，所有语言共用 post_tags。
+ * 译文没有单独的发布状态：文章已发布时，它的译文对读者可见。所有语言共用 post_tags，标签名的译名在 tag_translations。
  */
 export const postTranslations = pgTable(
   "post_translations",
@@ -108,6 +108,27 @@ export const tags = pgTable(
   },
   // 名称也不能重复，且不分大小写："CSS" 和 "css" 在列表里看起来就是同一个标签
   (t) => [uniqueIndex("tags_name_lower_idx").on(sql`lower(${t.name})`)],
+);
+
+/**
+ * 标签在其他语言里的名称（tags.name 是原文语言的）。新建、编辑标签时必须填齐，
+ * 但旧标签可能还没有：读的时候缺哪种语言就显示原文名称。
+ */
+export const tagTranslations = pgTable(
+  "tag_translations",
+  {
+    tagId: integer()
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    locale: text().$type<Locale>().notNull(),
+    name: text().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tagId, t.locale] }),
+    check("tag_translations_locale_format", localeFormat(t.locale)),
+    // 同一种语言里名称不重复（不分大小写），理由同 tags_name_lower_idx
+    uniqueIndex("tag_translations_locale_name_idx").on(t.locale, sql`lower(${t.name})`),
+  ],
 );
 
 export const postTags = pgTable(

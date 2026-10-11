@@ -19,6 +19,7 @@ const translator: Translator = {
     return { text: "Title", ...ok };
   },
   streamSegment: () => segmentImpl(),
+  translateTagName: () => Promise.reject(new Error("not used in this test")),
 };
 
 const HEARTBEAT_MS = 20;

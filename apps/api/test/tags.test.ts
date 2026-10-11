@@ -2,7 +2,7 @@ import { adminPostSchema, adminTagSchema, searchResultSchema } from "@blog/share
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { posts } from "../src/db/schema.ts";
+import { posts, tags } from "../src/db/schema.ts";
 import { tagsForPublishedPosts } from "../src/lib/revalidate.ts";
 import { setupTestApp } from "./helpers.ts";
 
@@ -33,29 +33,50 @@ describe("GET / POST /admin/tags", () => {
 
   it("lists every tag with total and published usage, most used first", async () => {
     await createTag({ slug: "unused", name: "没人用" });
-    await createTag({ slug: "css", name: "CSS" });
-    await createTag({ slug: "design", name: "设计" });
+    await createTag({ slug: "css", name: "CSS", translations: { en: "CSS", ja: "CSS" } });
+    await createTag({ slug: "design", name: "设计", translations: { en: "Design", ja: "デザイン" } });
     await createPost({ slug: "p1", tags: ["design", "css"], ...published });
     await createPost({ slug: "p2", tags: ["design"] });
 
     expect(await listTags()).toEqual([
-      { id: 3, slug: "design", name: "设计", postCount: 2, publishedCount: 1 },
-      { id: 2, slug: "css", name: "CSS", postCount: 1, publishedCount: 1 },
-      { id: 1, slug: "unused", name: "没人用", postCount: 0, publishedCount: 0 },
+      { id: 3, slug: "design", name: "设计", translations: { en: "Design", ja: "デザイン" }, postCount: 2, publishedCount: 1 },
+      { id: 2, slug: "css", name: "CSS", translations: { en: "CSS", ja: "CSS" }, postCount: 1, publishedCount: 1 },
+      { id: 1, slug: "unused", name: "没人用", translations: { en: "没人用 (en)", ja: "没人用 (ja)" }, postCount: 0, publishedCount: 0 },
     ]);
   });
 
-  it("creates a tag with a trimmed name", async () => {
-    const res = await request("POST", "/admin/tags", { body: { slug: "frontend", name: "  前端 " } });
+  it("creates a tag with trimmed names", async () => {
+    const res = await request("POST", "/admin/tags", { body: { slug: "frontend", name: "  前端 ", translations: { en: " Frontend", ja: "フロントエンド " } } });
     expect(res.status).toBe(201);
-    expect(adminTagSchema.parse(res.body)).toEqual({ id: 1, slug: "frontend", name: "前端", postCount: 0, publishedCount: 0 });
+    expect(adminTagSchema.parse(res.body)).toEqual({
+      id: 1,
+      slug: "frontend",
+      name: "前端",
+      translations: { en: "Frontend", ja: "フロントエンド" },
+      postCount: 0,
+      publishedCount: 0,
+    });
   });
 
   it.each([
-    ["the same slug", { slug: "css", name: "层叠样式表" }, "已经有使用这个 slug 的标签"],
-    ["the same name in another case", { slug: "css-2", name: "css" }, "已经有同名的标签"],
+    ["no translations", {}, "translations"],
+    ["a missing language", { translations: { en: "Frontend" } }, "translations.ja"],
+    ["a blank translation", { translations: { en: "Frontend", ja: "  " } }, "translations.ja"],
+    ["the original language as a translation", { translations: { zh: "前端", en: "Frontend", ja: "フロントエンド" } }, "translations.zh"],
+  ])("requires a name in every other language: refuses %s", async (_name, extra, path) => {
+    const res = await request("POST", "/admin/tags", { body: { slug: "frontend", name: "前端", ...extra } });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: { code: "validation_error", issues: [{ path }] } });
+    expect(await listTags()).toEqual([]);
+  });
+
+  const both = (en: string, ja: string) => ({ translations: { en, ja } });
+  it.each([
+    ["the same slug", { slug: "css", name: "层叠样式表", ...both("Cascading", "カスケード") }, "已经有使用这个 slug 的标签"],
+    ["the same name in another case", { slug: "css-2", name: "css", ...both("Cascading", "カスケード") }, "已经有同名的标签"],
+    ["a translated name another tag already has in that language", { slug: "css-2", name: "样式", ...both("Css", "スタイル") }, "这种语言里已经有同名的标签"],
   ])("refuses %s with 409", async (_name, body, message) => {
-    await createTag({ slug: "css", name: "CSS" });
+    await createTag({ slug: "css", name: "CSS", translations: { en: "CSS", ja: "CSS" } });
     const res = await request("POST", "/admin/tags", { body });
     expect(res.status).toBe(409);
     expect(res.body).toEqual({ error: { code: "conflict", message } });
@@ -90,6 +111,33 @@ describe("PATCH /admin/tags/:id", () => {
     // 重建索引不算作者的编辑
     const [after] = await db.select({ updatedAt: posts.updatedAt }).from(posts).where(eq(posts.id, live.id));
     expect(after?.updatedAt).toEqual(before?.updatedAt);
+  });
+
+  it("replaces the translated names and refreshes the published pages that show them", async () => {
+    const tag = await createTag({ slug: "web", name: "网页", translations: { en: "Web", ja: "ウェブ" } });
+    const post = await createPost({ slug: "p", tags: ["web"], ...published });
+    revalidations.length = 0;
+
+    const res = await request("PATCH", `/admin/tags/${tag.id}`, { body: { translations: { en: "Webpage", ja: "ウェブ" } } });
+    expect(adminTagSchema.parse(res.body).translations).toEqual({ en: "Webpage", ja: "ウェブ" });
+    expect(revalidations).toEqual([tagsForPublishedPosts(["p"])]);
+    expect((await request("GET", `/posts/p?locale=en`, { auth: false })).body).toMatchObject({ tags: [{ slug: "web", name: "Webpage" }] });
+    // 后台的文章数据用原文名称
+    expect(await tagsOf(post.id)).toEqual([{ slug: "web", name: "网页" }]);
+
+    // 同样的译名再存一次：什么都没变，不刷新
+    revalidations.length = 0;
+    await request("PATCH", `/admin/tags/${tag.id}`, { body: { translations: { en: "Webpage", ja: "ウェブ" } } });
+    expect(revalidations).toEqual([]);
+    // 给了译名就要给全
+    expect((await request("PATCH", `/admin/tags/${tag.id}`, { body: { translations: { en: "Web" } } })).status).toBe(400);
+  });
+
+  it("gives an old tag its first translations through an edit", async () => {
+    const [legacy] = await db.insert(tags).values({ slug: "legacy", name: "旧标签" }).returning({ id: tags.id });
+    expect((await listTags())[0]?.translations).toEqual({});
+    const res = await request("PATCH", `/admin/tags/${legacy?.id}`, { body: { name: "旧标签", translations: { en: "Legacy", ja: "レガシー" } } });
+    expect(adminTagSchema.parse(res.body).translations).toEqual({ en: "Legacy", ja: "レガシー" });
   });
 
   it("changes the slug that posts reference", async () => {

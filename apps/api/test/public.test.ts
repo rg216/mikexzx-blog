@@ -2,7 +2,7 @@ import { publicPostSchema, postSummaryPageSchema, tagWithCountSchema } from "@bl
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { posts, postTranslations } from "../src/db/schema.ts";
+import { posts, postTranslations, tags } from "../src/db/schema.ts";
 import { setupTestApp } from "./helpers.ts";
 
 const { db, request, createPost, createTag, translatePost } = setupTestApp();
@@ -141,7 +141,7 @@ describe("languages", () => {
   });
 
   it("returns the translation of a post with its translation status and available languages", async () => {
-    await createTag({ slug: "t", name: "标签" });
+    await createTag({ slug: "t", name: "标签", translations: { en: "Tag", ja: "タグ" } });
     const { id } = await createPost({ slug: "a", title: "标题", contentMd: "正文。", status: "published", tags: ["t"] });
     await translatePost(id, "ja", { title: "タイトル", contentMd: "本文。" });
 
@@ -155,8 +155,8 @@ describe("languages", () => {
       excerpt: "本文。",
       availableLocales: ["zh", "ja"],
       translation: { origin: "human", outdated: false },
-      // 标签不翻译
-      tags: [{ slug: "t", name: "标签" }],
+      // 标签名用这种语言的译名
+      tags: [{ slug: "t", name: "タグ" }],
     });
   });
 
@@ -179,18 +179,40 @@ describe("languages", () => {
   });
 
   it("counts tags per language, only over posts visible in it", async () => {
-    const shared = { slug: "shared", name: "共用" };
-    for (const tag of [shared, { slug: "only-a", name: "甲" }, { slug: "only-b", name: "乙" }]) await createTag(tag);
+    for (const tag of [
+      { slug: "shared", name: "共用", translations: { en: "Shared", ja: "共通" } },
+      { slug: "only-a", name: "甲", translations: { en: "Alpha", ja: "甲" } },
+      { slug: "only-b", name: "乙", translations: { en: "Beta", ja: "乙" } },
+    ])
+      await createTag(tag);
     const a = await createPost({ slug: "a", status: "published", tags: ["shared", "only-a"] });
     await createPost({ slug: "b", status: "published", tags: ["shared", "only-b"] });
     await translatePost(a.id, "en");
 
+    // 名称是英文的译名，同样篇数时按译名排序
     expect(await tagsIn("en")).toEqual([
-      { ...shared, count: 1 },
-      { slug: "only-a", name: "甲", count: 1 },
+      { slug: "only-a", name: "Alpha", count: 1 },
+      { slug: "shared", name: "Shared", count: 1 },
     ]);
     expect((await tagsIn("zh")).find((t) => t.slug === "shared")?.count).toBe(2);
     expect(await tagsIn("ja")).toEqual([]);
+  });
+
+  it("shows tag names in the reader's language, falling back to the original name for tags without one", async () => {
+    await createTag({ slug: "t", name: "标签", translations: { en: "Tag", ja: "タグ" } });
+    // 引入译名之前就有的标签：库里没有译名
+    await db.insert(tags).values({ slug: "legacy", name: "旧标签" });
+    const { id } = await createPost({ slug: "a", status: "published", tags: ["t", "legacy"] });
+    await translatePost(id, "en");
+
+    expect((await postIn("a", "en")).tags).toEqual([
+      { slug: "t", name: "Tag" },
+      { slug: "legacy", name: "旧标签" },
+    ]);
+    expect((await listIn("en"))[0]?.tags.map((t) => t.name)).toEqual(["Tag", "旧标签"]);
+    // 没有日文译文的文章在 /ja 显示原文，界面语言仍是日文：标签名也用日文
+    expect((await postIn("a", "ja")).tags.map((t) => t.name)).toEqual(["タグ", "旧标签"]);
+    expect((await postIn("a", "zh")).tags.map((t) => t.name)).toEqual(["标签", "旧标签"]);
   });
 
   it("does not assume the original is Chinese", async () => {

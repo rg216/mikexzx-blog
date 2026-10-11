@@ -3,6 +3,10 @@ import {
   fitTranslatedSegment,
   localeSchema,
   splitMarkdownForTranslation,
+  tagSourceLocale,
+  tagTranslateInputSchema,
+  type TagTranslateResult,
+  tagTranslationLocales,
   type TranslationConfig,
   TRANSLATION_HEARTBEAT_MS,
   translationGenerateInputSchema,
@@ -19,6 +23,7 @@ import { sourceHash } from "../lib/source-hash.ts";
 import {
   classifyTranslatorError,
   cleanTranslatedTitle,
+  parseTagNameOutput,
   type SegmentEvent,
   stopReasonMessage,
   TRANSLATION_MODEL,
@@ -28,12 +33,14 @@ import {
 } from "../lib/translator.ts";
 import { validate } from "../lib/validate.ts";
 import { type AuthEnv, sessionOf } from "../middleware/auth.ts";
+import { listAdminTags } from "../services/tags.ts";
 import { findPost } from "../services/translations.ts";
 
 /*
  * 大模型翻译的接口（挂在 /admin 下：已登录 + 同源校验 + 写操作限流都由外层负责）。
  *   GET  /translation/config                          → { available, model, reason? }：编辑器据此启用按钮、显示模型名或不能用的原因
  *   POST /posts/:id/translations/:locale/generate     → 标题：JSON；正文的一段：NDJSON 流
+ *   POST /tags/translate                              → 标签名的各语言译名：JSON
  * 生成的结果只回给编辑器，不入库：作者过目、保存（PUT 译文）后才对读者可见。
  */
 
@@ -42,7 +49,7 @@ const generateParam = z.object({
   locale: localeSchema,
 });
 
-type LogEntry = { postId: number; locale: string; part: string; index?: number } & TranslationStop;
+type LogEntry = ({ postId: number; locale: string; part: string; index?: number } | { tag: string; part: "tag" }) & TranslationStop;
 
 /** 用量只记日志、不入库（Vercel 的日志里能查到每次调用花了多少 token） */
 function logUsage(entry: LogEntry) {
@@ -62,6 +69,14 @@ export type TranslationDeps = {
   heartbeatMs?: number;
 };
 
+/** 浏览器断开（关闭页面、点"停止"）时中止上游请求，不再计费 */
+function abortWithRequest(request: Request): AbortController {
+  const controller = new AbortController();
+  if (request.signal.aborted) controller.abort();
+  else request.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  return controller;
+}
+
 export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatMs = TRANSLATION_HEARTBEAT_MS }: TranslationDeps, limiter: RateLimiter) {
   return new Hono<AuthEnv>()
     .get("/translation/config", async (c) => {
@@ -70,6 +85,43 @@ export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatM
       if (!translator) return c.json({ available: false, model, reason: "not_configured" } satisfies TranslationConfig);
       if (!(await limiterHealthy())) return c.json({ available: false, model, reason: "rate_limiter_unavailable" } satisfies TranslationConfig);
       return c.json({ available: true, model } satisfies TranslationConfig);
+    })
+    /*
+     * 标签名的译名：一次调用给出所有需要译名的语言。翻译的是表单里此刻的名称（新建时还没有 id），
+     * 结果只回给编辑框，作者确认、保存标签后才生效。和文章翻译共用限流额度。
+     */
+    .post("/tags/translate", validate("json", tagTranslateInputSchema), async (c) => {
+      if (!translator) throw new HttpError(503, "internal_error", "翻译功能未启用（服务器需要设置 ANTHROPIC_API_KEY 和 REDIS_URL）");
+      const { name, slug } = c.req.valid("json");
+      const refused = await checkRateLimit(c, limiter, rules.translate, `user:${sessionOf(c).user.id}`);
+      if (refused) return refused;
+
+      // 已有标签的译名作参考，新译名的风格和它们一致（不含同名的自己）
+      const glossary = (await listAdminTags(db))
+        .filter((tag) => tag.name !== name && tagTranslationLocales.every((locale) => tag.translations[locale]))
+        .map((tag) => ({ name: tag.name, translations: tag.translations }));
+      const job = { sourceLocale: tagSourceLocale, targetLocales: tagTranslationLocales, name, slug, glossary };
+      const log = { tag: name, part: "tag" as const };
+
+      let outcome;
+      try {
+        outcome = await translator.translateTagName(job, { signal: abortWithRequest(c.req.raw).signal });
+      } catch (error) {
+        const failure = classifyTranslatorError(error);
+        if (!failure.aborted) console.error("tag translation failed", log, error);
+        throw new HttpError(failure.status, failure.code, failure.message);
+      }
+      const { text, ...stop } = outcome;
+      logUsage({ ...log, ...stop });
+      if (stop.stopReason !== "end_turn") throw new HttpError(502, "internal_error", stopReasonMessage(stop.stopReason, stop.refusalCategory));
+      let translations;
+      try {
+        translations = parseTagNameOutput(text, tagTranslationLocales);
+      } catch (error) {
+        console.error("tag translation unparsable", log, text);
+        throw new HttpError(502, "internal_error", error instanceof Error ? error.message : "模型返回的译名无法解析");
+      }
+      return c.json({ translations, model: fitModelName(stop.model), usage: stop.usage } satisfies TagTranslateResult);
     })
     .post(
       "/posts/:id/translations/:locale/generate",
@@ -95,11 +147,7 @@ export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatM
          */
         const limitTranslation = () => checkRateLimit(c, limiter, rules.translate, `user:${sessionOf(c).user.id}`);
 
-        // 浏览器断开（关闭页面、点"停止"）时中止上游请求，不再计费
-        const controller = new AbortController();
-        const requestSignal = c.req.raw.signal;
-        if (requestSignal.aborted) controller.abort();
-        else requestSignal.addEventListener("abort", () => controller.abort(), { once: true });
+        const controller = abortWithRequest(c.req.raw);
 
         if (input.part === "title") {
           const refused = await limitTranslation();

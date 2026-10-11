@@ -5,13 +5,13 @@ import type { Locale, PostCreateInput, TagInput } from "@blog/shared";
  * 写入时仍经过 schema 校验和服务层，和 API 走同一条路径。文章只能引用已有标签，所以先写标签。
  */
 export const seedTags: TagInput[] = [
-  { slug: "meta", name: "关于本站" },
-  { slug: "fullstack", name: "全栈" },
-  { slug: "design", name: "设计" },
-  { slug: "css", name: "CSS" },
-  { slug: "tooling", name: "工具链" },
-  { slug: "typography", name: "排版" },
-  { slug: "security", name: "安全" },
+  { slug: "meta", name: "关于本站", translations: { en: "About this site", ja: "このサイトについて" } },
+  { slug: "fullstack", name: "全栈", translations: { en: "Full stack", ja: "フルスタック" } },
+  { slug: "design", name: "设计", translations: { en: "Design", ja: "デザイン" } },
+  { slug: "css", name: "CSS", translations: { en: "CSS", ja: "CSS" } },
+  { slug: "tooling", name: "工具链", translations: { en: "Tooling", ja: "ツール" } },
+  { slug: "typography", name: "排版", translations: { en: "Typography", ja: "タイポグラフィ" } },
+  { slug: "security", name: "安全", translations: { en: "Security", ja: "セキュリティ" } },
 ];
 
 export const seedPosts: PostCreateInput[] = [

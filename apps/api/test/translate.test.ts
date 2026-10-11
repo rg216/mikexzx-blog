@@ -1,8 +1,17 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { adminPostSchema, apiErrorSchema, splitMarkdownForTranslation, translationStreamEventSchema, translationTitleResultSchema } from "@blog/shared";
+import {
+  adminPostSchema,
+  apiErrorSchema,
+  splitMarkdownForTranslation,
+  tagTranslateResultSchema,
+  translationStreamEventSchema,
+  translationTitleResultSchema,
+} from "@blog/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type SegmentEvent,
+  type TagNameJob,
+  type TagNameOutcome,
   type TitleOutcome,
   TRANSLATION_MODEL,
   type TranslationJob,
@@ -27,9 +36,14 @@ const defaultSegment: SegmentImpl = async function* (_job, segment) {
   yield { type: "done", text: `[ja] ${segment.text.trim()}`, ...ok };
 };
 
+type TagImpl = (job: TagNameJob) => Promise<TagNameOutcome>;
+const defaultTag: TagImpl = async () => ({ text: '{"en":" Front end ","ja":"フロントエンド"}', ...ok });
+
 const calls: { part: "title" | "body"; job: TranslationJob; segment?: TranslationSegment; signal: AbortSignal }[] = [];
+const tagCalls: TagNameJob[] = [];
 let titleImpl = defaultTitle;
 let segmentImpl = defaultSegment;
+let tagImpl = defaultTag;
 
 const translator: Translator = {
   model: TRANSLATION_MODEL,
@@ -41,17 +55,23 @@ const translator: Translator = {
     calls.push({ part: "body", job, segment, signal });
     return segmentImpl(job, segment, signal);
   },
+  translateTagName(job) {
+    tagCalls.push(job);
+    return tagImpl(job);
+  },
 };
 
 const apiError = (status: number) => Anthropic.APIError.generate(status, { type: "error", error: { type: "x", message: "secret upstream detail" } }, undefined, new Headers());
 
 // 翻译要有 Redis 才启用（rules.translate 是唯一的额度上限，见 createApp）
-const { request, requestRaw, createPost } = setupTestApp({ translator, withRedis: true });
+const { request, requestRaw, createPost, createTag } = setupTestApp({ translator, withRedis: true });
 
 afterEach(() => {
   calls.length = 0;
+  tagCalls.length = 0;
   titleImpl = defaultTitle;
   segmentImpl = defaultSegment;
+  tagImpl = defaultTag;
   vi.restoreAllMocks();
 });
 
@@ -416,5 +436,52 @@ describe("generating a body segment (NDJSON stream)", () => {
     controller.abort();
     await upstreamAborted;
     expect(calls[0]?.signal.aborted).toBe(true);
+  });
+});
+
+describe("POST /admin/tags/translate", () => {
+  const translateTag = (body: unknown, options: { auth?: boolean; origin?: string | null } = {}) => request("POST", "/admin/tags/translate", { body, ...options });
+
+  it("returns a cleaned-up name for every language that needs one", async () => {
+    const res = await translateTag({ name: "前端", slug: "frontend" });
+    expect(res.status).toBe(200);
+    expect(tagTranslateResultSchema.parse(res.body)).toEqual({ translations: { en: "Front end", ja: "フロントエンド" }, model: TRANSLATION_MODEL, usage });
+    expect(tagCalls).toEqual([{ sourceLocale: "zh", targetLocales: ["en", "ja"], name: "前端", slug: "frontend", glossary: [] }]);
+  });
+
+  it("shows the model the existing fully translated tags, except the one being named", async () => {
+    await createTag({ slug: "design", name: "设计", translations: { en: "Design", ja: "デザイン" } });
+    await createTag({ slug: "frontend", name: "前端", translations: { en: "Frontend", ja: "フロントエンド" } });
+    await translateTag({ name: "前端" });
+    expect(tagCalls[0]?.glossary).toEqual([{ name: "设计", translations: { en: "Design", ja: "デザイン" } }]);
+    expect(tagCalls[0]?.slug).toBe("");
+  });
+
+  it("requires a session and a same-origin request, and validates before calling the model", async () => {
+    expect((await translateTag({ name: "前端" }, { auth: false })).status).toBe(401);
+    expect((await translateTag({ name: "前端" }, { origin: "https://evil.test" })).status).toBe(403);
+    expect((await translateTag({ name: "   " })).status).toBe(400);
+    expect((await translateTag({ name: "前端", slug: "Not A Slug" })).status).toBe(400);
+    expect(tagCalls).toHaveLength(0);
+  });
+
+  it.each([
+    ["a refusal", { text: "", ...ok, stopReason: "refusal", refusalCategory: "cyber" }, "模型拒绝翻译这部分内容（类别：cyber）"],
+    ["output that is not JSON", { text: "Front end", ...ok }, "模型返回的不是合法的 JSON"],
+    ["a missing language", { text: '{"en":"Front end"}', ...ok }, "模型返回的译名不完整或不合规（每种语言 1–50 字）"],
+  ])("answers 502 for %s", async (_name, outcome, message) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    tagImpl = async () => outcome;
+    const res = await translateTag({ name: "前端" });
+    expect(res.status).toBe(502);
+    expect(apiErrorSchema.parse(res.body).error.message).toBe(message);
+  });
+
+  it("does not leak upstream error details", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    tagImpl = () => Promise.reject(apiError(529));
+    const res = await translateTag({ name: "前端" });
+    expect(res.status).toBe(502);
+    expect(JSON.stringify(res.body)).not.toContain("secret upstream detail");
   });
 });

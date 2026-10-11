@@ -37,6 +37,9 @@ import {
   type AdminTag,
   adminTagSchema,
   type TagInput,
+  type TagTranslateInput,
+  type TagTranslateResult,
+  tagTranslateResultSchema,
   type TagUpdateInput,
 } from "@blog/shared";
 import { z } from "zod";
@@ -326,6 +329,11 @@ export function createAdminApi(options: JsonClientOptions = {}) {
 
     async deleteTag(id: number): Promise<void> {
       await request("DELETE", `/tags/${id}`);
+    },
+
+    /** 请大模型给标签名起各语言的译名（只回给编辑框，保存标签后才生效） */
+    async translateTag(input: TagTranslateInput, signal?: AbortSignal): Promise<TagTranslateResult> {
+      return parseJson(await request("POST", "/tags/translate", input, { signal }), tagTranslateResultSchema);
     },
 
     /** 把标签 id 合并进 into，返回合并后的 into */

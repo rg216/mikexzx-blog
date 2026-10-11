@@ -1,7 +1,7 @@
 "use client";
 
-import type { AdminTag } from "@blog/shared";
-import { Merge, Pencil, Plus, Tags, Trash2 } from "lucide-react";
+import { type AdminTag, missingTagTranslations, type TranslationConfig, tagSourceLocale, tagTranslationLocales } from "@blog/shared";
+import { Merge, Pencil, Plus, Sparkles, Tags, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
@@ -11,7 +11,9 @@ import { Spinner } from "@/components/ui/Spinner";
 import { TextField } from "@/components/ui/TextField";
 import { adminApi, AdminApiError } from "@/lib/admin-api";
 import { normalizeSlug } from "@/lib/post-form";
-import { type TagFormErrors, validateTagForm } from "@/lib/tag-form";
+import { adminLanguageName, type TagFormErrors, type TagFormValues, tagFormValues, validateTagForm } from "@/lib/tag-form";
+import { modelDisplayName } from "@/lib/translation-form";
+import { unavailableReasonNotes } from "@/lib/translation-generation";
 import { PostSectionTabs } from "./PostSectionTabs";
 import styles from "./TagManager.module.css";
 
@@ -28,8 +30,24 @@ function usageText(tag: AdminTag): string {
   return `${tag.postCount} 篇文章，已发布 ${tag.publishedCount} 篇`;
 }
 
+/** 列表里每个标签的各语言名称；缺译名时提示（旧标签，编辑时补上） */
+function TagTranslationsLine({ tag }: { tag: AdminTag }) {
+  const missing = missingTagTranslations(tag);
+  const present = tagTranslationLocales.filter((locale) => !missing.includes(locale));
+  return (
+    <span className={styles.translationNames}>
+      {present.map((locale) => (
+        <span key={locale} lang={locale}>
+          {tag.translations[locale]}
+        </span>
+      ))}
+      {missing.length > 0 && <span className={styles.missing}>缺{missing.map(adminLanguageName).join("、")}名称</span>}
+    </span>
+  );
+}
+
 /**
- * 标签管理：新建、改名（名称 / slug）、合并、删除。编辑文章时只能从这里已有的标签里选。
+ * 标签管理：新建、改名（名称 / slug / 各语言名称）、合并、删除。编辑文章时只能从这里已有的标签里选。
  * 改名、合并、删除后，API 会重建相关文章的搜索索引并刷新前台页面。
  */
 export function TagManager() {
@@ -40,10 +58,16 @@ export function TagManager() {
 
   // 新建 / 编辑
   const [editing, setEditing] = useState<{ mode: "create" } | { mode: "edit"; tag: AdminTag } | null>(null);
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
+  const [values, setValues] = useState<TagFormValues>(tagFormValues());
   const [formErrors, setFormErrors] = useState<TagFormErrors & { form?: string }>({});
   const [saving, setSaving] = useState(false);
+
+  // 大模型翻译标签名：配置（能不能用、用哪个模型）在页面打开时读一次
+  const [translationConfig, setTranslationConfig] = useState<TranslationConfig | null>(null);
+  const [configError, setConfigError] = useState<string>();
+  const [translating, setTranslating] = useState(false);
+  const [translateStatus, setTranslateStatus] = useState<{ kind: "done" | "error"; text: string } | null>(null);
+  const translateControllerRef = useRef<AbortController | null>(null);
 
   // 合并
   const [merging, setMerging] = useState<AdminTag | null>(null);
@@ -67,20 +91,73 @@ export function TagManager() {
     };
   }, [reloadKey]);
 
+  useEffect(() => {
+    let ignore = false;
+    adminApi.getTranslationConfig().then(
+      (config) => !ignore && setTranslationConfig(config),
+      // 读不到配置：按钮保持禁用，手工填写不受影响
+      (error: unknown) => !ignore && setConfigError(`读取翻译配置失败：${messageOf(error)}`),
+    );
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  // 离开页面时中止进行中的翻译请求
+  useEffect(() => () => translateControllerRef.current?.abort(), []);
+
   const tags = state.kind === "ready" ? state.tags : [];
   const reload = () => setReloadKey((key) => key + 1);
 
   function openEditor(target: { mode: "create" } | { mode: "edit"; tag: AdminTag }) {
     setEditing(target);
-    setName(target.mode === "edit" ? target.tag.name : "");
-    setSlug(target.mode === "edit" ? target.tag.slug : "");
+    setValues(tagFormValues(target.mode === "edit" ? target.tag : undefined));
     setFormErrors({});
+    setTranslateStatus(null);
+  }
+
+  function closeEditor() {
+    translateControllerRef.current?.abort();
+    setEditing(null);
+  }
+
+  function setField(field: "name" | "slug", value: string) {
+    setValues((prev) => ({ ...prev, [field]: value }));
+    setFormErrors((prev) => ({ ...prev, [field]: undefined }));
+  }
+
+  function setTranslation(locale: (typeof tagTranslationLocales)[number], value: string) {
+    setValues((prev) => ({ ...prev, translations: { ...prev.translations, [locale]: value } }));
+    setFormErrors((prev) => ({ ...prev, translations: { ...prev.translations, [locale]: undefined } }));
+  }
+
+  /** 请大模型起译名，填进各语言的输入框（会替换已有内容），作者检查、保存后才生效 */
+  async function translate() {
+    const name = values.name.trim();
+    if (!name || translating) return;
+    const controller = new AbortController();
+    translateControllerRef.current = controller;
+    setTranslating(true);
+    setTranslateStatus(null);
+    try {
+      const slug = normalizeSlug(values.slug);
+      const result = await adminApi.translateTag({ name, slug }, controller.signal);
+      setValues((prev) => ({ ...prev, translations: { ...prev.translations, ...result.translations } }));
+      setFormErrors((prev) => ({ ...prev, translations: undefined }));
+      setTranslateStatus({ kind: "done", text: `已由 ${modelDisplayName(result.model)} 生成，请检查后保存` });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setTranslateStatus({ kind: "error", text: messageOf(error) });
+    } finally {
+      if (translateControllerRef.current === controller) translateControllerRef.current = null;
+      setTranslating(false);
+    }
   }
 
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!editing || saving) return;
-    const { data, errors } = validateTagForm({ name, slug }, tags, editing.mode === "edit" ? editing.tag.id : undefined);
+    const { data, errors } = validateTagForm(values, tags, editing.mode === "edit" ? editing.tag.id : undefined);
     if (!data) {
       setFormErrors(errors);
       return;
@@ -92,9 +169,14 @@ export function TagManager() {
         await adminApi.createTag(data);
         setAnnouncement(`已新建标签 ${data.name}`);
       } else {
-        // 只发改动的字段：没改 slug 就不碰它
+        // 只发改动的字段：没改 slug 就不碰它；译名整体发送（给了就必须是全部语言）
         const { tag } = editing;
-        const changes = { ...(data.name !== tag.name && { name: data.name }), ...(data.slug !== tag.slug && { slug: data.slug }) };
+        const translationsChanged = tagTranslationLocales.some((locale) => data.translations[locale] !== tag.translations[locale]);
+        const changes = {
+          ...(data.name !== tag.name && { name: data.name }),
+          ...(data.slug !== tag.slug && { slug: data.slug }),
+          ...(translationsChanged && { translations: data.translations }),
+        };
         if (Object.keys(changes).length > 0) await adminApi.updateTag(tag.id, changes);
         setAnnouncement(`已保存标签 ${data.name}`);
       }
@@ -153,7 +235,7 @@ export function TagManager() {
     requestAnimationFrame(() => headingRef.current?.focus());
   }
 
-  const suggestedSlug = normalizeSlug(name);
+  const suggestedSlug = normalizeSlug(values.name);
   const mergeTargets = merging ? tags.filter((tag) => tag.id !== merging.id) : [];
   const mergeTarget = mergeTargets.find((tag) => String(tag.id) === mergeInto);
 
@@ -210,6 +292,7 @@ export function TagManager() {
               <div className={styles.main}>
                 <span className={styles.name}>{tag.name}</span>
                 <span className={styles.slug}>{tag.slug}</span>
+                <TagTranslationsLine tag={tag} />
               </div>
               <span className={styles.usage}>{usageText(tag)}</span>
               <div className={styles.actions}>
@@ -242,36 +325,57 @@ export function TagManager() {
         </ul>
       )}
 
-      <Dialog open={editing !== null} title={editing?.mode === "edit" ? "编辑标签" : "新建标签"} onClose={() => setEditing(null)}>
+      <Dialog open={editing !== null} title={editing?.mode === "edit" ? "编辑标签" : "新建标签"} onClose={closeEditor}>
         <form className={styles.form} onSubmit={(event) => void save(event)} noValidate>
           <TextField
-            label="名称"
-            hint="显示在文章上，可以是中文"
-            value={name}
+            label={`${adminLanguageName(tagSourceLocale)}名称`}
+            hint="标签的原文名称，后台和中文页面上显示它"
+            value={values.name}
             maxLength={50}
-            onChange={(event) => {
-              setName(event.target.value);
-              setFormErrors((prev) => ({ ...prev, name: undefined }));
-            }}
+            onChange={(event) => setField("name", event.target.value)}
             error={formErrors.name}
             autoFocus
           />
           <TextField
             label="slug"
             hint={editing?.mode === "edit" ? "用于网址：小写字母、数字和连字符" : "用于网址：小写字母、数字和连字符；英文名称留空会自动生成"}
-            value={slug}
+            value={values.slug}
             placeholder={suggestedSlug || "如 frontend"}
             maxLength={200}
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            onChange={(event) => {
-              setSlug(event.target.value);
-              setFormErrors((prev) => ({ ...prev, slug: undefined }));
-            }}
-            onBlur={() => setSlug((value) => normalizeSlug(value))}
+            onChange={(event) => setField("slug", event.target.value)}
+            onBlur={() => setValues((prev) => ({ ...prev, slug: normalizeSlug(prev.slug) }))}
             error={formErrors.slug}
           />
+          <fieldset className={styles.translations}>
+            <legend className={styles.translationsLegend}>其他语言的名称</legend>
+            <p className={styles.note}>前台各语言的页面显示对应的名称，每种语言都要填。</p>
+            <div className={styles.translateRow}>
+              <Button variant="secondary" busy={translating} disabled={!translationConfig?.available || values.name.trim() === ""} onClick={() => void translate()}>
+                <Sparkles aria-hidden="true" />
+                {translationConfig?.available ? `用 ${modelDisplayName(translationConfig.model)} 翻译` : "自动翻译"}
+              </Button>
+              <p role="status" className={translateStatus?.kind === "error" ? styles.translateError : styles.note}>
+                {translateStatus?.text ??
+                  configError ??
+                  (translationConfig && !translationConfig.available ? unavailableReasonNotes[translationConfig.reason] : "")}
+              </p>
+            </div>
+            {tagTranslationLocales.map((locale) => (
+              <TextField
+                key={locale}
+                label={`${adminLanguageName(locale)}名称`}
+                lang={locale}
+                value={values.translations[locale] ?? ""}
+                maxLength={50}
+                readOnly={translating}
+                onChange={(event) => setTranslation(locale, event.target.value)}
+                error={formErrors.translations?.[locale]}
+              />
+            ))}
+          </fieldset>
           {editing?.mode === "edit" && editing.tag.publishedCount > 0 && (
             <p className={styles.note}>保存后会刷新用到它的 {editing.tag.publishedCount} 篇已发布文章。</p>
           )}

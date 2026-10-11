@@ -6,6 +6,7 @@ import {
   localeInfo,
   locales,
   type PostStatus,
+  type Tag,
   type translationInputSchema,
 } from "@blog/shared";
 import { and, eq, getTableColumns, inArray, type SQL } from "drizzle-orm";
@@ -120,7 +121,7 @@ export function assertMachineTranslationStructure(sourceMd: string, translationM
  * 新建或整体替换一篇译文。
  * - 带 generated（编辑器里未经修改的机器译文）：原文指纹必须是当前的（否则 409），再做结构校验，存 origin = machine、model = generated.model；
  * - 不带（作者手写或改过机器译文）：origin = human、model 为空。
- * 摘要按该语言的长度生成；搜索索引用译文的标题、正文加上文章的标签（标签不翻译）。
+ * 摘要按该语言的长度生成；搜索索引用译文的标题、正文加上文章的标签（该语言的标签名）。
  */
 export async function upsertTranslation(
   db: Db,
@@ -146,7 +147,7 @@ export async function upsertTranslation(
       .from(postTranslations)
       .where(and(eq(postTranslations.postId, postId), eq(postTranslations.locale, locale)));
 
-    const postTags = (await tagsByPostId(tx, [postId])).get(postId) ?? [];
+    const postTags = (await tagsByPostId(tx, [postId], locale)).get(postId) ?? [];
     const values = {
       title: data.title,
       contentMd: data.contentMd,
@@ -188,7 +189,7 @@ export async function deleteTranslation(db: Db, postId: number, locale: Locale):
 }
 
 /**
- * 重建符合条件的译文的搜索索引，返回处理的篇数。用于：文章的标签变了 / 标签改名（标签是索引里的 B 权重）；
+ * 重建符合条件的译文的搜索索引，返回处理的篇数。用于：文章的标签变了 / 标签改名或改译名（标签是索引里的 B 权重）；
  * 迁移后补齐 search_vector 为 NULL 的译文。不改 translated_at——这不是重新翻译。
  */
 export async function reindexTranslations(db: Executor, where: SQL): Promise<number> {
@@ -196,11 +197,16 @@ export async function reindexTranslations(db: Executor, where: SQL): Promise<num
     .select({ postId: postTranslations.postId, locale: postTranslations.locale, title: postTranslations.title, contentMd: postTranslations.contentMd })
     .from(postTranslations)
     .where(where);
-  const tagMap = await tagsByPostId(db, [...new Set(rows.map((r) => r.postId))]);
+  // 每种语言的索引用该语言的标签名：按语言分别查标签
+  const tagMaps = new Map<Locale, Map<number, Tag[]>>();
+  for (const locale of new Set(rows.map((r) => r.locale))) {
+    const ids = [...new Set(rows.filter((r) => r.locale === locale).map((r) => r.postId))];
+    tagMaps.set(locale, await tagsByPostId(db, ids, locale));
+  }
   for (const row of rows) {
     await db
       .update(postTranslations)
-      .set({ searchVector: searchVectorOf({ ...row, tags: tagMap.get(row.postId) ?? [] }) })
+      .set({ searchVector: searchVectorOf({ ...row, tags: tagMaps.get(row.locale)?.get(row.postId) ?? [] }) })
       .where(and(eq(postTranslations.postId, row.postId), eq(postTranslations.locale, row.locale)));
   }
   return rows.length;

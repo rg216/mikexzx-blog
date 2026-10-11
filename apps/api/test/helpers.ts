@@ -1,4 +1,4 @@
-import { adminPostSchema, type AdminTag, adminTagSchema, type Locale, type PostCreateInput, type TagInput } from "@blog/shared";
+import { adminPostSchema, type AdminTag, adminTagSchema, type Locale, type PostCreateInput, type TagInput, tagTranslationLocales } from "@blog/shared";
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/server";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeEach } from "vitest";
@@ -350,9 +350,11 @@ export function setupTestApp({
     return res;
   }
 
-  /** 通过 API 创建标签（文章只能引用已有标签）；只给 slug 时名称同 slug */
+  /** 通过 API 创建标签（文章只能引用已有标签）；只给 slug 时名称同 slug，译名默认是 "名称 (语言)" */
   async function createTag(input: Partial<TagInput> & { slug: string }): Promise<AdminTag> {
-    const res = await request("POST", "/admin/tags", { body: { name: input.slug, ...input } });
+    const name = input.name ?? input.slug;
+    const translations = Object.fromEntries(tagTranslationLocales.map((locale) => [locale, `${name} (${locale})`]));
+    const res = await request("POST", "/admin/tags", { body: { name, translations, ...input } });
     if (res.status !== 201) throw new Error(`createTag failed: ${res.status} ${JSON.stringify(res.body)}`);
     return adminTagSchema.parse(res.body);
   }

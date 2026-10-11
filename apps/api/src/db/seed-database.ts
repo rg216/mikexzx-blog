@@ -2,6 +2,7 @@ import { postCreateInputSchema, tagInputSchema, translationInputSchema } from "@
 import { and, eq } from "drizzle-orm";
 import { sourceHash } from "../lib/source-hash.ts";
 import { createPost } from "../services/posts.ts";
+import { createTag } from "../services/tags.ts";
 import { upsertTranslation } from "../services/translations.ts";
 import type { Db } from "./client.ts";
 import { posts, postTranslations, tags } from "./schema.ts";
@@ -9,11 +10,13 @@ import { seedPosts, seedTags, seedTranslations } from "./seed-data.ts";
 
 /** 写入种子标签、文章和译文。幂等：已存在的标签 / slug / 译文跳过，可以反复运行 */
 export async function seedDatabase(db: Db, log: (line: string) => void = console.log): Promise<void> {
-  // 文章只能引用已有标签，先写标签
-  await db
-    .insert(tags)
-    .values(seedTags.map((tag) => tagInputSchema.parse(tag)))
-    .onConflictDoNothing();
+  // 文章只能引用已有标签，先写标签（连同译名）
+  for (const input of seedTags) {
+    const tag = tagInputSchema.parse(input);
+    const [existing] = await db.select({ id: tags.id }).from(tags).where(eq(tags.slug, tag.slug));
+    if (existing) continue;
+    await createTag(db, tag);
+  }
 
   for (const input of seedPosts) {
     const data = postCreateInputSchema.parse(input);

@@ -24,6 +24,10 @@ const translator: Translator = {
     calls.push("body");
     yield { type: "start" };
   },
+  async translateTagName() {
+    calls.push("tag");
+    return { text: '{"en":"Design","ja":"デザイン"}', stopReason: "end_turn", refusalCategory: null, model: TRANSLATION_MODEL, usage, fallback: false };
+  },
 };
 
 /** 总是连不上的 Redis */

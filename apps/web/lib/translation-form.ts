@@ -20,7 +20,7 @@ import { toApiIssues } from "./post-form";
  * 和 lib/post-form.ts 同样不依赖 React 和浏览器。后台界面只有中文，这里的文案直接写中文。
  */
 
-/** 译文只有标题和正文可编辑：slug 各语言相同，标签不翻译，摘要由 API 从正文生成 */
+/** 译文只有标题和正文可编辑：slug 各语言相同，标签的译名在标签管理里维护，摘要由 API 从正文生成 */
 export type TranslationFormValues = {
   title: string;
   contentMd: string;

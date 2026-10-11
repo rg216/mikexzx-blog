@@ -110,6 +110,21 @@
   overflow-wrap: anywhere;
 }
 
+/* 各语言的名称：一行小字跟在 slug 后面（窄屏换到下一行） */
+.translationNames {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  column-gap: var(--space-1);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+.missing {
+  color: var(--color-destructive-text);
+  font-weight: var(--font-weight-semibold);
+}
+
 .usage {
   grid-area: usage;
   color: var(--color-secondary-label);
@@ -150,6 +165,50 @@
 .note {
   color: var(--color-secondary-label);
   font-size: var(--font-size-footnote);
+}
+
+/* 其他语言的名称：一组，和上面的字段之间用分隔线隔开 */
+.translations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-1-5) 0 0;
+  border: 0;
+  border-top: 0.5px solid var(--color-separator);
+}
+
+/* 和 TextField 的 label 同样式 */
+.translationsLegend {
+  float: left;
+  width: 100%;
+  padding: 0;
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.translations > .note {
+  margin-top: calc(-1 * var(--space-1));
+}
+
+.translateRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.translateRow > p {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.translateError {
+  color: var(--color-destructive-text);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
 }
 
 .selectField {

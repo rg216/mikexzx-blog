@@ -1,8 +1,8 @@
-import type { AdminTag, tagInputSchema, tagUpdateInputSchema } from "@blog/shared";
+import type { AdminTag, Locale, TagTranslations, tagInputSchema, tagUpdateInputSchema } from "@blog/shared";
 import { and, asc, count, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { posts, postTags, tags } from "../db/schema.ts";
+import { posts, postTags, tags, tagTranslations } from "../db/schema.ts";
 import { HttpError } from "../lib/errors.ts";
 import type { Executor } from "./post-common.ts";
 import { reindexPostsAndTranslations } from "./posts.ts";
@@ -11,6 +11,7 @@ import { reindexPostsAndTranslations } from "./posts.ts";
  * 标签的集中管理。文章只能引用这里已有的标签（见 posts.ts 的 resolveTags）。
  * 标签名是搜索索引的一部分（权重 B，原文和译文都有），也显示在前台每种语言的文章上：改名、合并、删除之后，
  * 要重建用到它的文章的索引，并告诉调用方哪些已发布文章的页面需要刷新。
+ * 各语言的译名（tag_translations）同理：改了译名，用到它的文章在那种语言里显示的名称、译文的索引都跟着变。
  */
 
 type CreateData = z.output<typeof tagInputSchema>;
@@ -19,9 +20,21 @@ type UpdateData = z.output<typeof tagUpdateInputSchema>;
 /** 一次修改的结果：publishedSlugs 是内容受影响的已发布文章，调用方据此刷新前台缓存 */
 export type TagChange<T> = { result: T; publishedSlugs: string[] };
 
+/** 一次查出多个标签的译名 */
+async function translationsByTagId(db: Executor, tagIds: number[]): Promise<Map<number, TagTranslations>> {
+  const result = new Map<number, TagTranslations>(tagIds.map((id) => [id, {}]));
+  if (tagIds.length === 0) return result;
+  const rows = await db.select().from(tagTranslations).where(inArray(tagTranslations.tagId, tagIds));
+  for (const row of rows) {
+    const translations = result.get(row.tagId);
+    if (translations) translations[row.locale] = row.name;
+  }
+  return result;
+}
+
 async function selectTags(db: Executor, where?: SQL): Promise<AdminTag[]> {
   const postCount = count(postTags.postId);
-  return db
+  const rows = await db
     .select({
       id: tags.id,
       slug: tags.slug,
@@ -35,7 +48,25 @@ async function selectTags(db: Executor, where?: SQL): Promise<AdminTag[]> {
     .where(where)
     .groupBy(tags.id)
     .orderBy(desc(postCount), asc(tags.name));
+  // 事务上的查询要一条接一条地发（见 post-common.ts 的 Executor）
+  const translations = await translationsByTagId(
+    db,
+    rows.map((r) => r.id),
+  );
+  return rows.map((row) => ({ ...row, translations: translations.get(row.id) ?? {} }));
 }
+
+/** 整体替换译名（输入已校验：每种需要译名的语言各一个） */
+async function replaceTranslations(tx: Executor, tagId: number, translations: TagTranslations): Promise<void> {
+  await tx.delete(tagTranslations).where(eq(tagTranslations.tagId, tagId));
+  const values = Object.entries(translations).map(([locale, name]) => ({ tagId, locale: locale as Locale, name: name ?? "" }));
+  if (values.length > 0) await tx.insert(tagTranslations).values(values);
+}
+
+const sameTranslations = (a: TagTranslations, b: TagTranslations) => {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<Locale>;
+  return [...keys].every((locale) => a[locale] === b[locale]);
+};
 
 async function selectTag(db: Executor, id: number): Promise<AdminTag> {
   const [tag] = await selectTags(db, eq(tags.id, id));
@@ -58,26 +89,36 @@ async function postsUsing(db: Executor, tagIds: number[]): Promise<{ ids: number
   return { ids: rows.map((r) => r.id), publishedSlugs: rows.filter((r) => r.status === "published").map((r) => r.slug) };
 }
 
-/** 标签名在原文和每篇译文的搜索索引里（标签不翻译，所有语言共用） */
+/** 标签名在原文和每篇译文的搜索索引里（译文用该语言的译名） */
 const reindex = reindexPostsAndTranslations;
 
-/** slug 或名称重复由数据库的唯一约束拒绝（409，见 create-app.ts） */
-export async function createTag(db: Db, data: CreateData): Promise<AdminTag> {
-  const [row] = await db.insert(tags).values(data).returning({ id: tags.id });
-  if (!row) throw new Error("insert returned no row");
-  return selectTag(db, row.id);
+/** slug、名称或某种语言的译名重复由数据库的唯一约束拒绝（409，见 create-app.ts） */
+export async function createTag(db: Db, { translations, ...data }: CreateData): Promise<AdminTag> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.insert(tags).values(data).returning({ id: tags.id });
+    if (!row) throw new Error("insert returned no row");
+    await replaceTranslations(tx, row.id, translations);
+    return selectTag(tx, row.id);
+  });
 }
 
-/** 改名 / 改 slug；不存在返回 null。只改 slug 不影响搜索索引，但前台数据里也带着 slug，照样刷新页面 */
-export async function updateTag(db: Db, id: number, data: UpdateData): Promise<TagChange<AdminTag> | null> {
+/**
+ * 改名 / 改 slug / 改译名；不存在返回 null。
+ * 名称、译名变了要重建索引；只改 slug 不影响索引，但前台数据里也带着 slug，照样刷新页面。
+ */
+export async function updateTag(db: Db, id: number, { translations, ...data }: UpdateData): Promise<TagChange<AdminTag> | null> {
   return db.transaction(async (tx) => {
     const [current] = await tx.select().from(tags).where(eq(tags.id, id)).for("update");
     if (!current) return null;
-    await tx.update(tags).set(data).where(eq(tags.id, id));
+    if (Object.keys(data).length > 0) await tx.update(tags).set(data).where(eq(tags.id, id));
+
+    const translationsChanged = translations !== undefined && !sameTranslations(translations, (await translationsByTagId(tx, [id])).get(id) ?? {});
+    if (translationsChanged) await replaceTranslations(tx, id, translations);
 
     const affected = await postsUsing(tx, [id]);
-    if (data.name !== undefined && data.name !== current.name) await reindex(tx, affected.ids);
-    const changed = (data.name ?? current.name) !== current.name || (data.slug ?? current.slug) !== current.slug;
+    const renamed = data.name !== undefined && data.name !== current.name;
+    if (renamed || translationsChanged) await reindex(tx, affected.ids);
+    const changed = renamed || translationsChanged || (data.slug ?? current.slug) !== current.slug;
     return { result: await selectTag(tx, id), publishedSlugs: changed ? affected.publishedSlugs : [] };
   });
 }

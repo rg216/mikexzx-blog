@@ -19,13 +19,13 @@ import {
 import { and, asc, count, desc, eq, getTableColumns, inArray, ne, or, type SQL, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { posts, postTags, postTranslations, tags } from "../db/schema.ts";
+import { posts, postTags, postTranslations, tags, tagTranslations } from "../db/schema.ts";
 import { type Cursor, encodeCursor } from "../lib/cursor.ts";
 import { HttpError } from "../lib/errors.ts";
 import { excerptFromMarkdown } from "../lib/excerpt.ts";
 import { sourceHash } from "../lib/source-hash.ts";
 import { imageMetaForPost, syncPostImages } from "./images.ts";
-import { type Executor, searchVectorOf, tagsByPostId } from "./post-common.ts";
+import { type Executor, localizedTagName, searchVectorOf, tagsByPostId, tagTranslationJoin } from "./post-common.ts";
 import { isOutdated, reindexTranslationsOf, translationColumns, translationSummariesByPostId } from "./translations.ts";
 
 
@@ -123,6 +123,7 @@ export async function listPublishedPosts(
   const tagMap = await tagsByPostId(
     db,
     page.map((r) => r.id),
+    locale,
   );
 
   return {
@@ -144,7 +145,7 @@ export async function getPublishedPost(db: Db, slug: string, locale: Locale): Pr
 
   const wantsTranslation = locale !== row.sourceLocale;
   const [tagMap, imageMeta, translated, translationLocales] = await Promise.all([
-    tagsByPostId(db, [row.id]),
+    tagsByPostId(db, [row.id], locale),
     // 图片引用关系是原文和所有译文的并集，对哪个语言版本都适用
     imageMetaForPost(db, row.id),
     wantsTranslation
@@ -185,18 +186,20 @@ export async function getPublishedPostId(db: Db, slug: string): Promise<number |
   return row?.id ?? null;
 }
 
-/** 某种语言可见的已发布文章用到的标签及篇数；只被草稿或该语言看不到的文章用到的标签不出现。 */
+/** 某种语言可见的已发布文章用到的标签及篇数（名称是该语言的）；只被草稿或该语言看不到的文章用到的标签不出现。 */
 export async function listTags(db: Db, locale: Locale): Promise<TagWithCount[]> {
   const postCount = count(posts.id);
   return db
-    .select({ slug: tags.slug, name: tags.name, count: postCount })
+    .select({ slug: tags.slug, name: localizedTagName, count: postCount })
     .from(tags)
     .innerJoin(postTags, eq(postTags.tagId, tags.id))
     .innerJoin(posts, and(eq(posts.id, postTags.postId), eq(posts.status, "published")))
     .leftJoin(postTranslations, translationJoin(locale))
+    .leftJoin(tagTranslations, tagTranslationJoin(locale))
     .where(visibleIn(locale))
-    .groupBy(tags.id)
-    .orderBy(desc(postCount), asc(tags.name));
+    // 每个标签在一种语言里最多一个译名（主键 (tag_id, locale)），一起分组不会拆开同一个标签
+    .groupBy(tags.id, tagTranslations.name)
+    .orderBy(desc(postCount), asc(localizedTagName));
 }
 
 // ---------- 管理 ----------

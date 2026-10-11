@@ -40,6 +40,7 @@ const uniqueViolationMessages: Record<string, string> = {
   posts_slug_unique: "slug 已被其他文章使用",
   tags_slug_unique: "已经有使用这个 slug 的标签",
   tags_name_lower_idx: "已经有同名的标签",
+  tag_translations_locale_name_idx: "这种语言里已经有同名的标签",
   media_folders_name_unique: "已经有同名的文件夹",
 };
 

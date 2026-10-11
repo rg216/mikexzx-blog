@@ -172,11 +172,22 @@ describe("GET /search in other languages", () => {
     expect(await slugs("layout", "en")).toEqual(["a"]);
   });
 
-  it("reindexes translations when a tag is renamed", async () => {
-    const tag = await createTag({ slug: "web", name: "Webpage" });
+  it("indexes each translation with that language's tag names", async () => {
+    await createTag({ slug: "web", name: "网页", translations: { en: "Webpage", ja: "ウェブページ" } });
     const a = await createPost({ slug: "a", contentMd: "甲", tags: ["web"], ...published });
     await translatePost(a.id, "en", { contentMd: "A." });
-    await request("PATCH", `/admin/tags/${tag.id}`, { body: { name: "Frontend" } });
+    await translatePost(a.id, "ja", { contentMd: "エー。" });
+    expect(await slugs("webpage", "en")).toEqual(["a"]);
+    expect(await slugs("网页", "en")).toEqual([]);
+    expect(await slugs("ウェブ", "ja")).toEqual(["a"]);
+    expect(await slugs("网页")).toEqual(["a"]);
+  });
+
+  it("reindexes translations when a tag's translated name changes", async () => {
+    const tag = await createTag({ slug: "web", name: "网页", translations: { en: "Webpage", ja: "ウェブページ" } });
+    const a = await createPost({ slug: "a", contentMd: "甲", tags: ["web"], ...published });
+    await translatePost(a.id, "en", { contentMd: "A." });
+    await request("PATCH", `/admin/tags/${tag.id}`, { body: { translations: { en: "Frontend", ja: "ウェブページ" } } });
     expect(await slugs("webpage", "en")).toEqual([]);
     expect(await slugs("frontend", "en")).toEqual(["a"]);
   });

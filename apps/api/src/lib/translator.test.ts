@@ -2,12 +2,17 @@ import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 import {
   buildSegmentRequest,
+  buildTagNameRequest,
   buildTitleRequest,
   classifyTranslatorError,
   cleanTranslatedTitle,
   createAnthropicTranslator,
   languageName,
+  parseTagNameOutput,
   type SegmentEvent,
+  TAG_NAME_MAX_TOKENS,
+  type TagNameJob,
+  tagNameStyles,
   SEGMENT_MAX_TOKENS,
   SERVER_SIDE_FALLBACK_BETA,
   sourceDocument,
@@ -589,5 +594,92 @@ describe("createAnthropicTranslator", () => {
     const { betas: _betas, ...expected } = buildTitleRequest(job);
     expect(calls[0]?.body).toEqual(expected);
     expect(calls[0]?.headers.get("anthropic-beta")).toBe(SERVER_SIDE_FALLBACK_BETA);
+  });
+
+  it("names a tag with one plain (non-beta-header) JSON request", async () => {
+    const { fetchImpl, calls } = fakeFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            id: "msg_tag",
+            type: "message",
+            role: "assistant",
+            model: TRANSLATION_MODEL,
+            content: [
+              { type: "thinking", thinking: "", signature: "sig" },
+              { type: "text", text: '{"en":"Typography","ja":"タイポグラフィ"}' },
+            ],
+            stop_reason: "end_turn",
+            stop_sequence: null,
+            stop_details: null,
+            usage: { input_tokens: 200, output_tokens: 15, cache_creation_input_tokens: null, cache_read_input_tokens: null },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
+    const outcome = await translator.translateTagName(tagJob, { signal: signal() });
+    expect(outcome).toMatchObject({ text: '{"en":"Typography","ja":"タイポグラフィ"}', stopReason: "end_turn", model: TRANSLATION_MODEL });
+    expect(calls[0]?.body).toEqual(buildTagNameRequest(tagJob));
+    expect(calls[0]?.headers.get("anthropic-beta")).toBeNull();
+  });
+});
+
+const tagJob: TagNameJob = {
+  sourceLocale: "zh",
+  targetLocales: ["en", "ja"],
+  name: "排版",
+  slug: "typography",
+  glossary: [{ name: "设计", translations: { en: "Design", ja: "デザイン" } }],
+};
+
+describe("buildTagNameRequest", () => {
+  it("asks for a JSON object with exactly one string per target language", () => {
+    const request = buildTagNameRequest(tagJob);
+    expect(request).toMatchObject({ model: TRANSLATION_MODEL, max_tokens: TAG_NAME_MAX_TOKENS, thinking: { type: "adaptive" } });
+    expect(request.output_config).toEqual({
+      effort: "low",
+      format: {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: { en: { type: "string", description: "The tag name in English" }, ja: { type: "string", description: "The tag name in Japanese" } },
+          required: ["en", "ja"],
+          additionalProperties: false,
+        },
+      },
+    });
+    // 结构化输出和服务端回退的兼容性没有文档确认：不用回退
+    expect(request).not.toHaveProperty("fallbacks");
+    expect(request).not.toHaveProperty("betas");
+  });
+
+  it("gives the name, the slug hint, the existing tags and each language's naming style", () => {
+    const request = buildTagNameRequest(tagJob);
+    expect(request.messages).toEqual([
+      { role: "user", content: "Existing tags on this blog, for consistent style:\n- 设计: en=Design, ja=デザイン\n\nTag: 排版\nIts URL slug (often an English hint of the meaning): typography" },
+    ]);
+    expect(request.system).toContain(`- English: ${tagNameStyles.en}`);
+    expect(request.system).toContain(`- Japanese: ${tagNameStyles.ja}`);
+    expect(request.system).not.toContain(tagNameStyles.zh);
+  });
+
+  it("leaves out the glossary and slug when there are none", () => {
+    expect(buildTagNameRequest({ ...tagJob, slug: "", glossary: [] }).messages).toEqual([{ role: "user", content: "Tag: 排版" }]);
+  });
+});
+
+describe("parseTagNameOutput", () => {
+  it("trims each name", () => {
+    expect(parseTagNameOutput('{"en":" Typography ","ja":"タイポグラフィ"}', ["en", "ja"])).toEqual({ en: "Typography", ja: "タイポグラフィ" });
+  });
+
+  it.each([
+    ["not JSON", "Typography", "不是合法的 JSON"],
+    ["a missing language", '{"en":"Typography"}', "不完整"],
+    ["an empty name", '{"en":"  ","ja":"x"}', "不完整"],
+    ["a name that is too long", `{"en":"${"x".repeat(51)}","ja":"x"}`, "不完整"],
+  ])("rejects %s", (_name, text, message) => {
+    expect(() => parseTagNameOutput(text, ["en", "ja"])).toThrow(message);
   });
 });

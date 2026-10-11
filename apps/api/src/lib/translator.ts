@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { type ApiErrorCode, type Locale, localeInfo, type TranslationUsage } from "@blog/shared";
+import { type ApiErrorCode, type Locale, localeInfo, tagNameSchema, type TagTranslations, type TranslationUsage } from "@blog/shared";
+import { z } from "zod";
 
 /*
  * 大模型翻译（v5.5）：调用 Claude API 把文章译成其他语言。只由作者在后台点击触发，结果先进编辑器，保存后才对读者可见。
@@ -83,10 +84,26 @@ export type SegmentEvent =
   | { type: "delta"; text: string }
   | ({ type: "done"; text: string } & TranslationStop);
 
+/**
+ * 给一个标签起各语言的译名。glossary 是站上已有标签的译名，让新译名的风格（大小写、片假名还是汉字）和它们一致。
+ */
+export type TagNameJob = {
+  sourceLocale: Locale;
+  targetLocales: readonly Locale[];
+  name: string;
+  /** 通常是英文，帮助判断意思；可能为空 */
+  slug: string;
+  glossary: { name: string; translations: TagTranslations }[];
+};
+
+/** text 是模型输出的 JSON（按 tagNameOutputSchema 约束），由 parseTagNameOutput 解析 */
+export type TagNameOutcome = TranslationStop & { text: string };
+
 export type Translator = {
   /** 请求的模型，后台显示用 */
   readonly model: string;
   translateTitle(job: TranslationJob, options: { signal: AbortSignal }): Promise<TitleOutcome>;
+  translateTagName(job: TagNameJob, options: { signal: AbortSignal }): Promise<TagNameOutcome>;
   /** signal 中止时停止上游请求（不再计费），迭代以错误结束 */
   streamSegment(job: TranslationJob, segment: TranslationSegment, options: { signal: AbortSignal }): AsyncIterable<SegmentEvent>;
 };
@@ -181,6 +198,83 @@ export function buildSegmentRequest(job: TranslationJob, segment: TranslationSeg
     "</part>",
   ].join("\n");
   return baseRequest(job, task, SEGMENT_MAX_TOKENS);
+}
+
+// ---------- 标签名（纯函数） ----------
+
+/** 标签名的输出上限：译名只有几个 token，余量留给思考（思考计入 max_tokens） */
+export const TAG_NAME_MAX_TOKENS = 4_000;
+
+/** 每种目标语言的标签命名习惯。Record<Locale, …>：加一种语言时 TS 会要求补上 */
+export const tagNameStyles: Record<Locale, string> = {
+  zh: "Use the term Chinese developers commonly use, in Simplified Chinese.",
+  en: "Use the common English term, capitalized like a title word (for example Typography, Full stack, Security).",
+  ja: "Use the term Japanese developers commonly use, katakana loanword or kanji, whichever is standard (for example タイポグラフィ, フルスタック, セキュリティ).",
+};
+
+export function tagNameSystemPrompt(sourceLocale: Locale, targetLocales: readonly Locale[]): string {
+  return [
+    `You name the tags of a personal technical blog written in ${languageName(sourceLocale)}. Given a tag, give its name in ${targetLocales.map(languageName).join(" and ")}.`,
+    "",
+    "Rules:",
+    "- A tag is a short label for a topic, not a sentence: use the conventional term readers of that language expect, usually one to three words.",
+    "- Keep acronyms, product names, library names and other proper nouns in their original form (for example CSS, React, Next.js).",
+    "- Do not add explanations, punctuation or quotes.",
+    "- If existing tags are listed, match their style.",
+    "",
+    "Style:",
+    ...targetLocales.map((locale) => `- ${languageName(locale)}: ${tagNameStyles[locale]}`),
+  ].join("\n");
+}
+
+/** 结构化输出的 JSON Schema：每种目标语言一个字符串字段（结构化输出要求 additionalProperties: false，不支持 maxLength） */
+export function tagNameOutputSchema(targetLocales: readonly Locale[]) {
+  return {
+    type: "object",
+    properties: Object.fromEntries(targetLocales.map((locale) => [locale, { type: "string", description: `The tag name in ${languageName(locale)}` }])),
+    required: [...targetLocales],
+    additionalProperties: false,
+  };
+}
+
+/** 已有标签作为参考，最多这么多个（再多只是增加输入 token） */
+const GLOSSARY_LIMIT = 40;
+
+export function buildTagNameRequest(job: TagNameJob): MessageRequest {
+  const examples = job.glossary
+    .slice(0, GLOSSARY_LIMIT)
+    .map((tag) => `- ${tag.name}: ${job.targetLocales.map((locale) => `${locale}=${tag.translations[locale] ?? "?"}`).join(", ")}`);
+  const content = [
+    ...(examples.length > 0 ? ["Existing tags on this blog, for consistent style:", ...examples, ""] : []),
+    `Tag: ${job.name}`,
+    ...(job.slug ? [`Its URL slug (often an English hint of the meaning): ${job.slug}`] : []),
+  ].join("\n");
+  return {
+    model: TRANSLATION_MODEL,
+    max_tokens: TAG_NAME_MAX_TOKENS,
+    // 不用服务端回退：文档没有确认回退模型支持结构化输出，而一个标签名几乎不会触发拒答
+    thinking: { type: "adaptive" },
+    // 很简单的任务：low 足够，也快
+    output_config: { effort: "low", format: { type: "json_schema", schema: tagNameOutputSchema(job.targetLocales) } },
+    system: tagNameSystemPrompt(job.sourceLocale, job.targetLocales),
+    messages: [{ role: "user", content }],
+  };
+}
+
+/**
+ * 解析模型给的译名。即使请求带了 JSON Schema 也要校验：截断（max_tokens）或拒答时输出可能不符合 schema。
+ * 每个译名按标签名的规则整理（去首尾空白、≤ 50 字）；不合格时抛出给作者看的说明。
+ */
+export function parseTagNameOutput(text: string, targetLocales: readonly Locale[]): TagTranslations {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error("模型返回的不是合法的 JSON");
+  }
+  const parsed = z.object(Object.fromEntries(targetLocales.map((locale) => [locale, tagNameSchema]))).safeParse(json);
+  if (!parsed.success) throw new Error("模型返回的译名不完整或不合规（每种语言 1–50 字）");
+  return parsed.data as TagTranslations;
 }
 
 // ---------- 结果整理（纯函数） ----------
@@ -360,6 +454,11 @@ export function createAnthropicTranslator(apiKey: string, options: AnthropicTran
 
     async translateTitle(job, { signal }) {
       const message = await client.beta.messages.create(buildTitleRequest(job), { signal });
+      return { text: textOf(message), ...stopOf(message) };
+    },
+
+    async translateTagName(job, { signal }) {
+      const message = await client.beta.messages.create(buildTagNameRequest(job), { signal });
       return { text: textOf(message), ...stopOf(message) };
     },
 
