@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitWithin, isAllowedImageType, shouldReencode } from "./image-prepare";
+import { fitWithin, isAllowedImageType, shouldReencode, variantWidthsFor } from "./image-prepare";
 
 // prepareImage 依赖浏览器的 createImageBitmap / OffscreenCanvas，在端到端测试里验证；这里测纯计算部分
 
@@ -32,3 +32,12 @@ describe("image types", () => {
     expect(isAllowedImageType("image/webp")).toBe(true);
   });
 });
+
+describe("variantWidthsFor", () => {
+  it("only makes variants narrower than the original", () => {
+    expect(variantWidthsFor(2560)).toEqual([640, 1280, 1920]);
+    expect(variantWidthsFor(1280)).toEqual([640]);
+    expect(variantWidthsFor(600)).toEqual([]);
+  });
+});
+

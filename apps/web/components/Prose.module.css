@@ -105,9 +105,36 @@
   border-top: 0.5px solid var(--color-separator);
 }
 
+/*
+ * 图片宽度：不放大、不超过栏宽和选定的显示尺寸、竖图的高度不超过视口的 80%。
+ * 显示尺寸来自地址里的 #small / #medium / #large / #w=…（rehype-images 转成 data-size 和 --display-max）。
+ */
 .prose img {
+  /* 外部图片、尺寸未知的旧图片：按原始尺寸显示，再用 max-* 限制（width: auto 时宽高比自动保持） */
+  width: auto;
+  max-width: min(100%, var(--display-max, 100%));
   height: auto;
+  max-height: 80svh;
   border-radius: var(--radius-md);
+}
+
+/*
+ * 媒体库的图片知道原始宽度和宽高比，直接算出宽度。不能用上面的 width: auto：
+ * 带 srcset 时浏览器会按 sizes 推算图片的"固有宽度"，原图比 sizes 小时反而会被放大。
+ * 高度的限制换算成宽度（80svh × 宽高比），这样缩小时不会变形。
+ */
+.prose img[data-sized] {
+  width: min(var(--image-max), var(--display-max, 100%), 100%, calc(80svh * var(--image-ratio)));
+  max-width: none;
+  max-height: none;
+}
+
+.prose img[data-size="small"] {
+  --display-max: 340px;
+}
+
+.prose img[data-size="medium"] {
+  --display-max: var(--content-width);
 }
 
 /* ---------- 图文混排 ---------- */
@@ -125,19 +152,22 @@
   margin-top: var(--space-6);
 }
 
-/* 手机上图片贴满屏幕两侧（抵消外层的左右边距），去掉圆角——同 Newsroom */
+/* 手机上"大"图（默认）贴满屏幕两侧（抵消外层的左右边距），去掉圆角——同 Newsroom；选了小、中或自定义宽度的不贴边 */
 @media (width < 46rem) {
-  .prose > figure {
+  .prose > figure:is(:not([data-size]), [data-size="large"]) {
     margin-inline: calc(-1 * var(--inset-left)) calc(-1 * var(--inset-right));
   }
 
-  .prose > figure img {
+  .prose > figure:is(:not([data-size]), [data-size="large"]) img {
+    --display-max: 100%;
     border-radius: 0;
   }
 }
 
+/* 单独成段的图片居中；比栏窄的图保持原始大小，不再拉伸到整栏 */
 .prose > figure img {
-  width: 100%;
+  display: block;
+  margin-inline: auto;
   border-radius: var(--radius-lg);
   background: var(--color-fill); /* 加载前的占位色 */
 }

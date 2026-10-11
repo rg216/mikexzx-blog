@@ -65,7 +65,7 @@ describe("listAllPublishedPosts", () => {
 });
 
 describe("getPublishedPost", () => {
-  const post: Post = { ...summary("hello"), contentMd: "正文" };
+  const post: Post = { ...summary("hello"), contentMd: "正文", images: {} };
 
   it("returns the post", async () => {
     fetchMock.mockResolvedValueOnce(json(post));

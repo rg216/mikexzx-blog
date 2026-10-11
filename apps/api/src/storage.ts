@@ -33,9 +33,9 @@ export function createObjectStorage(config: StorageConfig, fetchImpl: typeof fet
   const publicBase = config.publicUrl.replace(/\/+$/, "");
   const objectUrl = (key: string) => new URL(`${endpoint}/${config.bucket}/${uriEncodePath(key)}`);
 
-  async function send(method: "HEAD" | "DELETE", key: string): Promise<Response> {
+  async function send(method: "HEAD" | "DELETE" | "GET", key: string, extraHeaders: Record<string, string> = {}): Promise<Response> {
     const url = objectUrl(key);
-    const headers = signRequest({ method, url, region: config.region, credentials: config.credentials });
+    const headers = signRequest({ method, url, region: config.region, credentials: config.credentials, headers: extraHeaders });
     try {
       return await fetchImpl(url, { method, headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
     } catch (error) {
@@ -76,6 +76,14 @@ export function createObjectStorage(config: StorageConfig, fetchImpl: typeof fet
       if (res.status === 404) return null;
       if (!res.ok) throw new StorageError(`HEAD ${key}: HTTP ${res.status}`);
       return { size: Number(res.headers.get("content-length")), contentType: res.headers.get("content-type") };
+    },
+
+    /** 读对象开头的若干字节（Range 请求，用来读图片尺寸，不必下载整个文件）；不存在返回 null */
+    async readStart(key: string, bytes: number): Promise<Uint8Array | null> {
+      const res = await send("GET", key, { range: `bytes=0-${bytes - 1}` });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new StorageError(`GET ${key}: HTTP ${res.status}`);
+      return new Uint8Array(await res.arrayBuffer());
     },
 
     /** 删除对象；本来就不存在也算成功（S3 协议的 DELETE 本身就是幂等的） */

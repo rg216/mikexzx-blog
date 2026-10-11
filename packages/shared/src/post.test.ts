@@ -20,6 +20,7 @@ describe("postSchema", () => {
     status: "published",
     publishedAt: "2026-10-01T09:00:00+08:00",
     tags: [],
+    images: { "images/2026/10/AbCdEfGh_jKlMn-p.jpg": { width: 2560, height: 1920, variants: [640, 1280] } },
   };
 
   it("accepts a valid post", () => {

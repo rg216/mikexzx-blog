@@ -6,6 +6,12 @@ import {
   type CommenterTrust,
   type CommentStatus,
   type AdminImage,
+  type AdminImageDetail,
+  adminImageDetailSchema,
+  type ImageListQuery,
+  type ImageUpdateInput,
+  type MediaFolder,
+  mediaFolderSchema,
   adminImageSchema,
   type AdminPost,
   adminPostSchema,
@@ -113,6 +119,9 @@ const postListSchema = z.array(adminPostSchema);
 const commentListSchema = z.array(adminCommentSchema);
 const commenterListSchema = z.array(adminCommenterSchema);
 const pendingCountSchema = z.object({ count: z.int().nonnegative() });
+const imageListSchema = z.array(adminImageSchema);
+const folderListSchema = z.array(mediaFolderSchema);
+const deletedSchema = z.object({ deleted: z.int().nonnegative() });
 
 /**
  * 后台各接口共用的 JSON 客户端：发请求、把错误响应转成 AdminApiError、用 schema 校验响应。
@@ -189,6 +198,48 @@ export function createAdminApi(options: JsonClientOptions = {}) {
     /** 文件传到存储之后，请 API 核对并确认 */
     async confirmImage(id: number): Promise<AdminImage> {
       return parseJson(await request("POST", `/images/${id}/confirm`), adminImageSchema);
+    },
+
+    async listImages(query: ImageListQuery = {}): Promise<AdminImage[]> {
+      const params = new URLSearchParams();
+      if (query.folder !== undefined && query.folder !== "all") params.set("folder", String(query.folder));
+      if (query.q) params.set("q", query.q);
+      if (query.unused) params.set("unused", "1");
+      const search = params.size > 0 ? `?${params}` : "";
+      return parseJson(await request("GET", `/images${search}`), imageListSchema);
+    },
+
+    async getImage(id: number): Promise<AdminImageDetail> {
+      return parseJson(await request("GET", `/images/${id}`), adminImageDetailSchema);
+    },
+
+    async updateImage(id: number, input: ImageUpdateInput): Promise<AdminImage> {
+      return parseJson(await request("PATCH", `/images/${id}`, input), adminImageSchema);
+    },
+
+    async moveImages(ids: number[], folderId: number | null): Promise<void> {
+      await request("POST", "/images/move", { ids, folderId });
+    },
+
+    /** 仍被文章引用的图片需要 force，否则返回 409（message 里列出了受影响的文章） */
+    async deleteImages(ids: number[], force = false): Promise<number> {
+      return (await parseJson(await request("POST", "/images/delete", { ids, force }), deletedSchema)).deleted;
+    },
+
+    async listFolders(): Promise<MediaFolder[]> {
+      return parseJson(await request("GET", "/media-folders"), folderListSchema);
+    },
+
+    async createFolder(name: string): Promise<MediaFolder> {
+      return parseJson(await request("POST", "/media-folders", { name }), mediaFolderSchema);
+    },
+
+    async renameFolder(id: number, name: string): Promise<void> {
+      await request("PATCH", `/media-folders/${id}`, { name });
+    },
+
+    async deleteFolder(id: number): Promise<void> {
+      await request("DELETE", `/media-folders/${id}`);
     },
 
     async listComments(status: CommentStatus): Promise<AdminComment[]> {

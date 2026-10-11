@@ -1,0 +1,2 @@
+/** 37×23 的真实 PNG（Chrome 编码），上传测试用它，API 能从文件头读出宽高 */
+export const PNG_37x23 = new Uint8Array(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAACUAAAAXCAYAAACMLIalAAAAXklEQVR4AezSsQkAIBBD0cPSsVzLxkLXcjVd4R9YGIiQLoV5Wuo857eU+PD4UvRRdKT6HkFCl2d7OlLZZa/7lqKilrIUFaA9nT+12ggSujzb05HKLnvdtxQVtZS01AUAAP//sOm1sgAAAAZJREFUAwC7HnxrM0OipQAAAABJRU5ErkJggg==", "base64"));

@@ -1,0 +1,68 @@
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.search {
+  flex: 1 1 12rem;
+}
+
+.selectField select {
+  min-height: var(--hit-target);
+  padding-inline: var(--space-1);
+  border: 1px solid var(--color-field-border);
+  border-radius: var(--radius-md);
+  background: var(--color-field-background);
+  color: var(--color-label);
+  font-size: var(--font-size-subhead);
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding-block: var(--space-6);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.footer {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.options {
+  display: flex;
+  flex: 1 1 20rem;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+.sizeRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.widthField {
+  width: 7rem;
+}
+
+.hint {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}

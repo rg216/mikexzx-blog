@@ -2,16 +2,31 @@ import type { AdminImage, ImageUpload } from "@blog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { ImageUploadError, uploadImage } from "./image-upload";
 
-const image: AdminImage = { id: 7, url: "https://img.test/images/2026/10/x.png", contentType: "image/png", size: 3, createdAt: "2026-10-10T00:00:00.000Z" };
+const image: AdminImage = {
+  id: 7,
+  url: "https://img.test/images/2026/10/x.png",
+  contentType: "image/png",
+  size: 3,
+  filename: "",
+  width: 37,
+  height: 23,
+  variants: [],
+  folderId: null,
+  description: "",
+  usage: 0,
+  createdAt: "2026-10-10T00:00:00.000Z",
+};
 const ticket: ImageUpload = {
   image,
-  upload: { url: "https://s3.test/bucket/x.png?X-Amz-Signature=s", method: "PUT", headers: { "content-type": "image/png" }, expiresAt: "2026-10-10T00:05:00.000Z" },
+  upload: { url: "https://s3.test/bucket/x.png?X-Amz-Signature=s", method: "PUT", headers: { "content-type": "image/png" } },
+  variants: [],
+  expiresAt: "2026-10-10T00:05:00.000Z",
 };
 
 function setup(storageResponse: Response | Error = new Response(null, { status: 200 })) {
   const api = { createImageUpload: vi.fn(async () => ticket), confirmImage: vi.fn(async () => image) };
   const prepared = new Blob(["abc"], { type: "image/png" });
-  const prepare = vi.fn(async () => ({ blob: prepared, contentType: "image/png" as const }));
+  const prepare = vi.fn(async () => ({ blob: prepared, contentType: "image/png" as const, variants: [] }));
   const fetch = vi.fn<typeof globalThis.fetch>(async () => (storageResponse instanceof Error ? Promise.reject(storageResponse) : storageResponse));
   return { api, prepare, fetch, prepared };
 }
@@ -20,7 +35,7 @@ describe("uploadImage", () => {
   it("asks for an upload with the prepared size, PUTs to storage with the signed headers, then confirms", async () => {
     const { api, prepare, fetch, prepared } = setup();
     expect(await uploadImage(new Blob(["original"]), { api, prepare, fetch })).toEqual(image);
-    expect(api.createImageUpload).toHaveBeenCalledWith({ contentType: "image/png", size: 3 });
+    expect(api.createImageUpload).toHaveBeenCalledWith({ contentType: "image/png", size: 3, filename: "", variants: [], folderId: null });
     expect(fetch).toHaveBeenCalledWith(ticket.upload.url, { method: "PUT", headers: ticket.upload.headers, body: prepared });
     expect(api.confirmImage).toHaveBeenCalledWith(7);
   });
@@ -38,8 +53,27 @@ describe("uploadImage", () => {
 
   it("refuses files still too large after processing, before asking the API", async () => {
     const { api, fetch } = setup();
-    const prepare = vi.fn(async () => ({ blob: new Blob([new Uint8Array(10 * 1024 * 1024 + 1)]), contentType: "image/png" as const }));
+    const prepare = vi.fn(async () => ({ blob: new Blob([new Uint8Array(10 * 1024 * 1024 + 1)]), contentType: "image/png" as const, variants: [] }));
     await expect(uploadImage(new Blob(), { api, prepare, fetch })).rejects.toThrow("10MB");
     expect(api.createImageUpload).not.toHaveBeenCalled();
   });
 });
+
+describe("uploadImage with variants", () => {
+  it("PUTs each variant to its own signed URL", async () => {
+    const small = new Blob(["s"], { type: "image/png" });
+    const api = {
+      createImageUpload: vi.fn(async () => ({
+        ...ticket,
+        variants: [{ width: 640, url: "https://s3.test/bucket/x-640w.png?sig", method: "PUT" as const, headers: { "content-type": "image/png" } }],
+      })),
+      confirmImage: vi.fn(async () => image),
+    };
+    const prepare = vi.fn(async () => ({ blob: new Blob(["abc"], { type: "image/png" }), contentType: "image/png" as const, variants: [{ width: 640 as const, blob: small }] }));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }));
+    await uploadImage(new File(["x"], "照片.png", { type: "image/png" }), { api, prepare, fetch, folderId: 3 });
+    expect(api.createImageUpload).toHaveBeenCalledWith({ contentType: "image/png", size: 3, filename: "照片.png", variants: [{ width: 640, size: 1 }], folderId: 3 });
+    expect(fetch.mock.calls.map(([url, init]) => [url, init?.body])).toContainEqual(["https://s3.test/bucket/x-640w.png?sig", small]);
+  });
+});
+

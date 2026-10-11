@@ -93,6 +93,13 @@ export const postViews = pgTable(
  * 一直没确认的（上传失败、中途关掉页面）由每天的定时任务连同存储里的文件一起清理——
  * 先记账再上传，存储里就不会出现"数据库不知道的孤儿文件"，清理时也不用遍历整个存储桶。
  */
+/** 媒体库的文件夹（只有一层）。只是数据库里的分类：图片换文件夹时文件和地址都不变，已发布的文章不受影响 */
+export const mediaFolders = pgTable("media_folders", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  name: text().notNull().unique(),
+  createdAt: timestamptz().notNull().defaultNow(),
+});
+
 export const images = pgTable(
   "images",
   {
@@ -102,10 +109,40 @@ export const images = pgTable(
     contentType: text().notNull(),
     // 申请上传时声明的字节数；确认时与存储里的实际大小比对
     size: integer().notNull(),
+    // 上传时的原文件名，只用于在媒体库里辨认和搜索
+    filename: text().notNull().default(""),
+    // 由 API 从文件头读出（不信任浏览器报的）；读不出或旧图片为 NULL
+    width: integer(),
+    height: integer(),
+    // 额外生成的较小尺寸版本的宽度，文件名为 <key 去掉扩展名>-<宽>w.<扩展名>
+    variants: integer().array().notNull().default(sql`'{}'::integer[]`),
+    folderId: integer().references(() => mediaFolders.id, { onDelete: "set null" }),
+    // 插入文章时默认带上的图片描述（alt）；每次使用时可以在正文里改
+    description: text().notNull().default(""),
     createdAt: timestamptz().notNull().defaultNow(),
     confirmedAt: timestamptz(),
   },
-  (t) => [index("images_pending_idx").on(t.createdAt).where(sql`${t.confirmedAt} IS NULL`)],
+  (t) => [
+    index("images_pending_idx").on(t.createdAt).where(sql`${t.confirmedAt} IS NULL`),
+    index("images_folder_idx").on(t.folderId),
+  ],
+);
+
+/**
+ * 文章引用了哪些图片。不手工维护：每次保存文章时从正文里找出媒体库图片的地址重建（见 services/posts.ts），
+ * 正文是唯一的事实来源。用于媒体库显示"被哪些文章引用"、删除前提醒、渲染时取宽高和尺寸版本。
+ */
+export const postImages = pgTable(
+  "post_images",
+  {
+    postId: integer()
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    imageId: integer()
+      .notNull()
+      .references(() => images.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.postId, t.imageId] }), index("post_images_image_id_idx").on(t.imageId)],
 );
 
 // ---------- 鉴权（v2）：只用 Passkey，没有密码 ----------

@@ -54,17 +54,19 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 阅读计数：访客 = SHA-256(每日随机盐 | IP | UA)，同一访客同一天同一篇只计一次，不用 cookie、不存 IP；爬虫不计数；数字由浏览器单独请求，不进 ISR 页面
 - 每天 00:10（北京时间）Vercel Cron 调 `GET /internal/views/flush`（Bearer `CRON_SECRET`），把前两天的计数幂等写入 `post_views`
 
-## 图片上传（v2c）
-- 浏览器直传对象存储，文件不经过 API（Vercel 函数请求体上限 4.5MB）：
-  1. 浏览器先缩放（长边 ≤ 2560）并重新编码 JPEG/PNG/WebP，去掉 EXIF（GPS 位置）；GIF、AVIF 原样上传
-  2. `POST /admin/images` {contentType, size}：API 记一笔待确认的图片，返回预签名 PUT URL（5 分钟），content-type、content-length、cache-control 都签进去，传别的类型或大小会被存储拒绝
-  3. 浏览器 PUT 到存储；`POST /admin/images/:id/confirm`：API 用 HEAD 核对大小和类型后才确认
-  4. 每天 00:20（北京时间）Cron 调 `GET /internal/images/cleanup`，删除超过一天没确认的图片（文件和记录）
-- 只收 JPEG / PNG / WebP / AVIF / GIF，≤ 10MB；不收 SVG（可内嵌脚本）。key 为 `images/YYYY/MM/<随机串>.<ext>`，内容不变，缓存一年
+## 媒体库与图片（v2c）
+- 集中管理：图片可以被多篇文章重复引用，不属于任何一篇；后台 `/admin/media`（一层文件夹、搜索、只看未被引用、批量移动 / 删除），编辑器"插入图片"打开媒体选择器，粘贴 / 拖入仍直接上传
+- 引用关系从正文推导：保存文章时按正文里的图片 key 重建 `post_images`（`syncPostImages`），`db:migrate` 后全部重建一遍。按 key（`images/YYYY/MM/<16 位随机串>.<ext>`）而不是整个地址识别，以后换图片域名旧文章照样认得；删除仍被引用的图片要 `force`，界面上会列出受影响的文章
+- 上传流程（浏览器直传对象存储，文件不经过 API——Vercel 函数请求体上限 4.5MB）：
+  1. 浏览器缩放（长边 ≤ 2560）并重新编码 JPEG/PNG/WebP，去掉 EXIF（GPS 位置），同时生成比原图窄的 640 / 1280 / 1920 版本（`<随机串>-640w.jpg`）；GIF、AVIF 原样上传、不生成版本
+  2. `POST /admin/images`：API 记一笔待确认的图片，为原图和每个版本各签发预签名 PUT URL（5 分钟），content-type、content-length、cache-control 都签进去
+  3. `POST /admin/images/:id/confirm`：HEAD 核对每个文件，再用 Range 请求读原图前 128KB、从文件头解析宽高（`lib/image-dimensions.ts`，不信任浏览器报的尺寸）
+  4. 每天 00:20（北京时间）Cron `GET /internal/images/cleanup`：删除超过一天没确认的图片（含各版本），并补全旧图片的宽高
+- 显示尺寸写在地址的 #片段里（`@blog/shared` 的 media.ts）：`#small`（340px）/ `#medium`（正文宽 680）/ `#large`（默认，出血 864，手机贴边）/ `#w=320`（40–2000）。`rehype-images` 读取后去掉片段，媒体库图片加 width/height、srcset、sizes 和 `--image-max` / `--image-ratio`；宽度由一条 `min()` 算出：不放大、不超过显示尺寸和栏宽、竖图高度不超过 80svh
+- 只收 JPEG / PNG / WebP / AVIF / GIF，≤ 10MB；不收 SVG（可内嵌脚本）。文件内容不变，缓存一年
 - S3 协议客户端自己实现（`lib/sigv4.ts` 用 AWS 文档的测试向量验证，`storage.ts`），不用 AWS SDK；一律路径风格地址
 - 本地 RustFS（MinIO 社区版已停止维护、镜像下架）；线上 Cloudflare R2：region `auto`，存储桶需配置 CORS（允许前端源 PUT，AllowedHeaders 含 content-type、cache-control），公开访问用 r2.dev 地址（有速率限制，以后有自己的域名后改绑自定义域名）
 - 环境变量 `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL`，要么全设要么全不设
-- 编辑器：按钮、粘贴、拖放都能插入；上传期间插入占位符，完成后替换成 `![](url)`（单独成段，渲染为 figure）；有图片在上传时不允许保存
 
 ## 评论（v4c）
 - 评论者用 GitHub 登录（GitHub App，不申请任何权限，只读公开资料；一个 App 配本地和线上两个回调地址），与管理员的 Passkey 体系完全分开：
@@ -118,7 +120,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - `commenters`（GitHub 用户，trust：default | trusted | blocked）、`commenter_sessions`、`oauth_states`
 - `comments`：post_id, commenter_id, root_id / parent_id（楼中楼）, body, status（pending | approved | rejected）
 - `post_views`
-- `images`：key, content_type, size, confirmed_at（NULL 为待确认）
+- `images`：key, content_type, size, filename, width / height, variants, folder_id, description, confirmed_at（NULL 为待确认）；`media_folders`；`post_images`（由正文推导）
 
 ## 安全
 - 管理员登录：只用 Passkey（WebAuthn），没有密码；协议验证用 SimpleWebAuthn，其余自己实现

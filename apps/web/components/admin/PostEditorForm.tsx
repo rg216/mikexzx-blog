@@ -1,7 +1,6 @@
 "use client";
 
 import type { AdminPost, PostStatus } from "@blog/shared";
-import { imageContentTypes } from "@blog/shared";
 import { ChevronLeft, ExternalLink, ImagePlus } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useEffect, useEffectEvent, useId, useRef, useState } from "react";
@@ -30,6 +29,7 @@ import {
   validatePostForm,
 } from "@/lib/post-form";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { MediaPicker } from "./media/MediaPicker";
 import styles from "./PostEditorForm.module.css";
 import { StatusBadge } from "./StatusBadge";
 import { TagEditor } from "./TagEditor";
@@ -65,7 +65,7 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
   const slugRef = useRef<HTMLInputElement>(null);
   const tagRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const previewHeadingId = useId();
   /** 正在上传的图片数；ref 是给 save() 同步判断用的（理由同 savingRef） */
   const [uploading, setUploading] = useState(0);
@@ -206,6 +206,23 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
         setUploading(uploadingRef.current);
       }
     }
+  }
+
+  /** 从媒体选择器插入：在光标处插入一段（前后补空行，渲染成 figure） */
+  function insertFromPicker(markdown: string) {
+    const textarea = contentRef.current;
+    const { value, cursor } = insertBlock(
+      values.contentMd,
+      textarea?.selectionStart ?? values.contentMd.length,
+      textarea?.selectionEnd ?? values.contentMd.length,
+      markdown,
+    );
+    setField("contentMd", value);
+    if (view === "preview") setView("edit");
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(cursor, cursor);
+    });
   }
 
   /** 粘贴板、拖放里的图片文件（其他文件忽略，交给浏览器默认处理） */
@@ -416,25 +433,13 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
               }}
             />
             <div className={styles.contentTools}>
-              <Button variant="plain" onClick={() => fileInputRef.current?.click()}>
+              <Button variant="plain" onClick={() => setPickerOpen(true)}>
                 <ImagePlus className={styles.toolIcon} aria-hidden="true" />
                 插入图片
               </Button>
               <p role="status" className={styles.uploadStatus}>
                 {uploading > 0 ? `正在上传 ${uploading} 张图片…` : "也可以直接粘贴或拖入图片"}
               </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={imageContentTypes.join(",")}
-                multiple
-                hidden
-                onChange={(event) => {
-                  void insertImages(imageFiles(event.currentTarget.files));
-                  // 清空，否则再次选择同一个文件不会触发 change
-                  event.currentTarget.value = "";
-                }}
-              />
             </div>
             {uploadError && (
               <Banner title="图片上传失败" className={styles.uploadBanner}>
@@ -452,6 +457,8 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
           </section>
         </div>
       </form>
+
+      <MediaPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onInsert={insertFromPicker} />
 
       <ConfirmDialog
         open={guard.pendingHref !== null}

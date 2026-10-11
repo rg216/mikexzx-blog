@@ -1,0 +1,71 @@
+/* 浮层：允许使用毛玻璃（见 tokens.css 的 --material-overlay-background） */
+.dialog {
+  width: calc(100% - var(--inset-left) - var(--inset-right));
+  max-width: var(--admin-dialog-width);
+  max-height: calc(100dvh - var(--space-6));
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--material-overlay-background);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  box-shadow: var(--shadow-overlay);
+  color: var(--color-label);
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-spring) var(--ease-spring);
+}
+
+/* 打开时才用 flex：<dialog> 关闭时靠默认的 display: none 隐藏 */
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.wide {
+  max-width: var(--admin-list-width);
+}
+
+@starting-style {
+  .dialog[open] {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+.dialog::backdrop {
+  background: var(--color-overlay-backdrop);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-1) 0 var(--space-3);
+}
+
+.title {
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-1) var(--space-3) var(--space-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-top: 0.5px solid var(--color-separator);
+}

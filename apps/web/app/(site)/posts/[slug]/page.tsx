@@ -57,7 +57,7 @@ export default async function PostPage({ params }: Props) {
 
   const [html, allPosts] = await Promise.all([
     // html 来自 renderMarkdown，已经过 rehype-sanitize 白名单清洗。
-    renderMarkdown(post.contentMd),
+    renderMarkdown(post.contentMd, { images: post.images }),
     listPublishedPosts({ limit: 5 }),
   ]);
   const recent = allPosts.filter((p) => p.slug !== post.slug).slice(0, 4);

@@ -11,7 +11,7 @@ import { createPost, deletePost, getPostById, listAllPosts, updatePost } from ".
 import type { ObjectStorage } from "../storage.ts";
 import type { GitHub } from "../auth/github.ts";
 import { adminCommentRoutes } from "./admin-comments.ts";
-import { imageRoutes } from "./images.ts";
+import { imageRoutes, mediaFolderRoutes } from "./images.ts";
 
 const idParam = z.object({ id: z.coerce.number().int().positive().max(2_147_483_647) });
 
@@ -53,5 +53,6 @@ export function adminRoutes(db: Db, revalidate: Revalidator, limiter: RateLimite
       return c.body(null, 204);
     })
     .route("/images", imageRoutes(db, storage))
+    .route("/media-folders", mediaFolderRoutes(db))
     .route("/", adminCommentRoutes(db, github));
 }

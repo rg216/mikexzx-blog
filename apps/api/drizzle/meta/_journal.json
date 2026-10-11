@@ -50,6 +50,13 @@
       "when": 1791623781101,
       "tag": "0006_comment_edit_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791700799868,
+      "tag": "0007_media_library",
+      "breakpoints": true
     }
   ]
 }

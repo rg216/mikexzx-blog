@@ -17,6 +17,7 @@ import { type Cursor, encodeCursor } from "../lib/cursor.ts";
 import { excerptFromMarkdown } from "../lib/excerpt.ts";
 import { plainTextFromMarkdown } from "../lib/markdown-text.ts";
 import { buildSearchVector } from "../lib/search-text.ts";
+import { imageMetaForPost, syncPostImages } from "./images.ts";
 
 // 服务层接收的是"校验之后"的数据（zod 的 output 类型，默认值已填好）
 type CreateData = z.output<typeof postCreateInputSchema>;
@@ -69,13 +70,13 @@ function toSummary(row: SummaryRow, postTagList: Tag[]): PostSummary {
   };
 }
 
-function toPost(row: PostRow, postTagList: Tag[]): Post {
-  return { ...toSummary(row, postTagList), contentMd: row.contentMd };
+function toPost(row: PostRow, postTagList: Tag[], imageMeta: Post["images"]): Post {
+  return { ...toSummary(row, postTagList), contentMd: row.contentMd, images: imageMeta };
 }
 
-function toAdminPost(row: PostRow, postTagList: Tag[]): AdminPost {
+function toAdminPost(row: PostRow, postTagList: Tag[], imageMeta: Post["images"]): AdminPost {
   return {
-    ...toPost(row, postTagList),
+    ...toPost(row, postTagList, imageMeta),
     id: row.id,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -123,8 +124,8 @@ export async function getPublishedPost(db: Db, slug: string): Promise<Post | nul
     .from(posts)
     .where(and(eq(posts.slug, slug), eq(posts.status, "published")));
   if (!row) return null;
-  const tagMap = await tagsByPostId(db, [row.id]);
-  return toPost(row, tagMap.get(row.id) ?? []);
+  const [tagMap, imageMeta] = await Promise.all([tagsByPostId(db, [row.id]), imageMetaForPost(db, row.id)]);
+  return toPost(row, tagMap.get(row.id) ?? [], imageMeta);
 }
 
 /** 已发布文章的 id（阅读计数用）；不存在或是草稿返回 null。 */
@@ -156,14 +157,15 @@ export async function listAllPosts(db: Db): Promise<AdminPost[]> {
     db,
     rows.map((r) => r.id),
   );
-  return rows.map((row) => toAdminPost(row, tagMap.get(row.id) ?? []));
+  // 列表不渲染正文，不需要图片信息
+  return rows.map((row) => toAdminPost(row, tagMap.get(row.id) ?? [], {}));
 }
 
 export async function getPostById(db: Executor, id: number): Promise<AdminPost | null> {
   const [row] = await db.select(postColumns).from(posts).where(eq(posts.id, id));
   if (!row) return null;
-  const tagMap = await tagsByPostId(db, [row.id]);
-  return toAdminPost(row, tagMap.get(row.id) ?? []);
+  const [tagMap, imageMeta] = await Promise.all([tagsByPostId(db, [row.id]), imageMetaForPost(db, row.id)]);
+  return toAdminPost(row, tagMap.get(row.id) ?? [], imageMeta);
 }
 
 /** 同一 slug 只保留第一次出现的。注意不能用 new Map(entries)：重复 key 会被后面的值覆盖 */
@@ -264,6 +266,7 @@ export async function createPost(db: Db, data: CreateData): Promise<AdminPost> {
 
     const affected = await replaceTags(tx, row.id, data.tags);
     if (affected.length > 0) await reindexPosts(tx, inArray(posts.id, affected));
+    await syncPostImages(tx, row.id, data.contentMd);
     const created = await getPostById(tx, row.id);
     if (!created) throw new Error("created post not found");
     return created;
@@ -311,6 +314,7 @@ export async function updatePost(
 
     const affected = newTags !== undefined ? await replaceTags(tx, id, newTags) : [];
     if (affected.length > 0) await reindexPosts(tx, inArray(posts.id, affected));
+    if (contentMd !== undefined) await syncPostImages(tx, id, contentMd);
     const post = await getPostById(tx, id);
     if (!post) throw new Error("updated post not found");
     return { post, before: { slug: current.slug, status: current.status } };

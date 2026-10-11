@@ -3,7 +3,7 @@ import { safeEqual } from "../auth/tokens.ts";
 import type { Db } from "../db/client.ts";
 import { errorBody } from "../lib/errors.ts";
 import type { RedisProvider } from "../redis.ts";
-import { cleanupPendingImages } from "../services/images.ts";
+import { backfillImageDimensions, cleanupPendingImages } from "../services/images.ts";
 import { flushDay, siteDay } from "../services/views.ts";
 import type { ObjectStorage } from "../storage.ts";
 
@@ -33,6 +33,7 @@ export function internalRoutes(db: Db, redis: RedisProvider | null, storage: Obj
     })
     .get("/images/cleanup", async (c) => {
       if (!storage) return c.json(errorBody("internal_error", "未配置图片存储"), 503);
-      return c.json({ deleted: await cleanupPendingImages(db, storage) });
+      // 顺便补全旧图片的尺寸（加这个功能之前上传的）
+      return c.json({ deleted: await cleanupPendingImages(db, storage), dimensionsFilled: await backfillImageDimensions(db, storage) });
     });
 }

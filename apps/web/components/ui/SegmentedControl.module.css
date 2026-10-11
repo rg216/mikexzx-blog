@@ -8,6 +8,8 @@
 }
 
 .segment {
+  /* 选项文字不换行：空间不够时整个控件换行，而不是把"自定义"挤成竖排 */
+  white-space: nowrap;
   position: relative;
   display: flex;
   flex: 1;

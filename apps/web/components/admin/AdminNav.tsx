@@ -27,6 +27,9 @@ export function AdminNav({ actions }: { actions?: ReactNode }) {
               <NavLink href="/admin/posts">文章</NavLink>
             </li>
             <li>
+              <NavLink href="/admin/media">媒体</NavLink>
+            </li>
+            <li>
               <NavLink href="/admin/comments">
                 评论
                 <PendingCommentsBadge />

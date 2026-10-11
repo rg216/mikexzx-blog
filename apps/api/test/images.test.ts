@@ -118,7 +118,7 @@ describe("GET /internal/images/cleanup", () => {
 
     const res = await cleanup();
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ deleted: 1 });
+    expect(res.body).toMatchObject({ deleted: 1 });
     expect(await storage.head(abandonedKey)).toBeNull();
     const remaining = await db.select({ id: images.id }).from(images);
     expect(remaining.map((r) => r.id).sort()).toEqual([recent.image.id, confirmed.image.id].sort());

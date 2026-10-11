@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { postImageMetaSchema } from "./image.ts";
 
 // API 的 JSON 字段统一用 camelCase（JS 惯例）；数据库列用 snake_case，由 Drizzle 负责映射。
 
@@ -38,11 +39,13 @@ export const postSchema = z.object({
   /** 首次发布时间（ISO 8601）；从未发布过为 null。撤回为草稿时保留，重新发布不会改变它。 */
   publishedAt: isoDateTime.nullable(),
   tags: z.array(tagSchema),
+  /** 正文引用的媒体库图片（按原图 key 索引），渲染时用来加宽高和 srcset；尺寸未知的不在里面 */
+  images: z.record(z.string(), postImageMetaSchema),
 });
 export type Post = z.infer<typeof postSchema>;
 
 /** 列表项：不带正文（列表页不需要传输全文）。 */
-export const postSummarySchema = postSchema.omit({ contentMd: true });
+export const postSummarySchema = postSchema.omit({ contentMd: true, images: true });
 export type PostSummary = z.infer<typeof postSummarySchema>;
 
 /** 管理接口返回的文章：多了内部 id 和时间戳。公开接口只用 slug 定位文章。 */

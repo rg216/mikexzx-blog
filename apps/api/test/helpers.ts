@@ -249,7 +249,7 @@ export function setupTestApp({ withRedis = false, withStorage = false }: { withR
   beforeEach(async () => {
     // RESTART IDENTITY：自增 id 也从 1 开始，测试里的 id 可预测
     await db.execute(
-      sql`TRUNCATE posts, tags, post_tags, images, users, passkeys, sessions, auth_challenges, comments, commenters, commenter_sessions, oauth_states RESTART IDENTITY CASCADE`,
+      sql`TRUNCATE posts, tags, post_tags, images, media_folders, users, passkeys, sessions, auth_challenges, comments, commenters, commenter_sessions, oauth_states RESTART IDENTITY CASCADE`,
     );
     jar.clear();
     adminCookie = null;

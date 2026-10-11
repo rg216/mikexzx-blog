@@ -4,7 +4,9 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
+import type { PostImageMeta } from "@blog/shared";
 import { rehypeFigure } from "./rehype-figure";
+import { rehypeImages } from "./rehype-images";
 
 /*
  * Markdown → HTML 字符串。
@@ -31,9 +33,14 @@ const htmlProcessor = unified()
     clobberPrefix: "",
   })
   .use(rehypeFigure)
-  .use(rehypeStringify);
+  .use(rehypeStringify)
+  .freeze();
 
-export async function renderMarkdown(markdown: string): Promise<string> {
-  const file = await htmlProcessor.process(markdown);
+/**
+ * images：文章引用的媒体库图片（API 随文章返回），有了它图片才会带上宽高和 srcset。
+ * 冻结的管线调用一下得到一个副本，在副本上接 rehypeImages——它在 rehypeFigure 之后运行，能知道图片在不在 figure 里。
+ */
+export async function renderMarkdown(markdown: string, { images }: { images?: Record<string, PostImageMeta> } = {}): Promise<string> {
+  const file = await htmlProcessor().use(rehypeImages, { images }).process(markdown);
   return String(file);
 }
