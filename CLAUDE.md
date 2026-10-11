@@ -96,6 +96,21 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - API 写入文章后（`tagsForChange`：只要写入前后有一边是已发布）调用前端 `POST /hooks/revalidate`（Bearer `REVALIDATE_SECRET`，两个项目共享），前端 `revalidateTag(tag, { expire: 0 })`
 - 通知失败只记日志、不影响写入；一小时定时刷新兜底。`/hooks` 不能放在 `/api` 下（`/api/*` 整体代理给 API）
 
+## 多语言（计划：v4.5 框架，v5.5 自动翻译）
+- 语言：中文（`zh`，原文，根路径不加前缀）、英文（`/en`）、日文（`/ja`）。语言列表集中定义在 `@blog/shared`（代码用 BCP 47 标签），加一种语言 = 在列表里加一项 + 补齐界面字典 + 必要时调整字体和分词，其余代码不写死具体语言
+- 现有中文网址一个都不变；不按 Accept-Language 自动跳转（常猜错、干扰搜索引擎），只显示切换语言的提示
+- 界面文案：自己实现的 TS 字典，类型保证每种语言的 key 齐全（缺翻译编译报错）；日期、数字用 `Intl` 按语言格式化
+- `<html lang>` 必须随语言变化：中日共用汉字（Han unification），浏览器靠 lang 选字形；字体栈按语言调整顺序（ja 优先 Hiragino Sans / Noto Sans CJK JP，zh 优先 PingFang SC）
+- 文章译文：`post_translations`（post_id, locale, title, content_md, excerpt, `source_hash` 生成时原文的指纹, `origin` machine | human, model, translated_at）；`posts` 本身就是原文，预留 `source_locale`（默认 zh）以便以后用别的语言写原文
+  - 每种语言是独立的 ISR 页面（`/en/posts/<slug>`，slug 各语言相同），互相用 hreflang 标注；没有译文的文章不出现在该语言的列表里（避免重复内容），直接访问时显示原文并提示
+  - 搜索按语言分别建索引（日文的假名、汉字已按中日韩二元组切分，英文按词）；缓存标签需要区分语言
+  - 评论不分语言，所有语言版本共用同一组评论
+- 自动翻译（v5.5）：发布 / 更新后异步调用 Claude API 生成译文（发布按钮不等待）
+  - 只由作者的操作触发，读者和爬虫触发不了 LLM 调用，成本可控；不做 X 那种读者点了才翻译（会被刷额度、搜索引擎收录不到）
+  - 原文指纹变了：机器译文自动重新生成；人工改过的不覆盖，后台提示"原文已更新"
+  - 保护 Markdown 结构：代码块、链接地址、图片地址不得改动，生成后校验（数量和地址与原文一致），不通过就不发布这次结果
+  - 译文页标注"机器翻译"并链接原文；以后评论可做按需翻译（仅登录用户、限流）
+
 ## 设计规范（Apple HIG 的 Web 翻译）
 - 样式只引用 design tokens（CSS 变量），不写死颜色、字号、间距
 - 字体用系统字体栈：`-apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", sans-serif`（Apple 设备上英文即为 San Francisco）；CJK 正文行高 1.6（参考 Newsroom 的约 1.45 与常规 1.7 之间）
@@ -142,5 +157,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - [x] v4a 限流与阅读数（线上 Redis 用 Vercel Storage 里的 Upstash，API 项目设 `REDIS_URL`（rediss://）和 `CRON_SECRET`）
   - [x] v4b 全文搜索
   - [x] v4c 评论（API 项目设 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`）
-- [ ] v5 工程化：Docker 镜像、GitHub Actions、VPS + Caddy 部署、pino 日志、Sentry、Playwright
-- [ ] v6 收款：Stripe / PayPal（待定：收款场景——打赏 / 付费文章 / 订阅；收款账户主体所在地决定能用哪家）
+- [ ] v4.5 多语言框架（见"多语言"）：中英日，`/en` `/ja` 前缀、界面字典、hreflang、`<html lang>`、译文数据结构、后台手工编辑译文
+- [ ] v5 工程化：Docker 镜像、GitHub Actions、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）
+- [ ] v5.5 自动翻译：发布后异步调用 Claude API 生成译文，结构校验，原文变更后重新生成
+- [ ] v6 收款：**暂缓，方案待定**。Stripe 不可用：Stripe 日本不允许以个人名义接受捐赠。需要先确定收款场景（打赏 / 付费文章 / 订阅）和收款主体，再选服务；无论用哪家，支付本身交给托管支付页，订单状态、webhook 签名校验、幂等、对账自己实现
