@@ -129,6 +129,7 @@
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 50%;
+  corner-shape: round; /* 正圆 / 胶囊，不用全局的连续圆角 */
   background: var(--color-fill);
 }
 

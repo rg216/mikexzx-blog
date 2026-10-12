@@ -97,6 +97,7 @@
   height: 1.5rem;
   border: 2px solid var(--color-button-primary-label);
   border-radius: 50%;
+  corner-shape: round; /* 正圆 / 胶囊，不用全局的连续圆角 */
   background: rgb(0 0 0 / 0.25);
   color: transparent;
   box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.3);

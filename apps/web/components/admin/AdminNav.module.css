@@ -125,6 +125,7 @@
   margin-left: var(--space-0-5);
   padding: 0 var(--space-0-5);
   border-radius: 999px;
+  corner-shape: round; /* 正圆 / 胶囊，不用全局的连续圆角 */
   background: var(--color-button-destructive);
   color: var(--color-button-primary-label);
   font-size: var(--font-size-caption);

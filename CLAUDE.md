@@ -184,6 +184,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 断点用 rem：md 46rem（≈736px）、lg 70rem（≈1120px，出现侧栏、文章标题 48px）
 - 图文混排：单独成段的图片渲染为 `<figure>`（title 作图注），桌面比正文宽、手机贴满屏幕两侧
 - 毛玻璃（`backdrop-filter`）只用于导航栏和浮层，正文区保持干净
+- 圆角用 G2 连续曲线：`globals.css` 在 `@supports (corner-shape: squircle)` 里给所有元素 `corner-shape: squircle`，并把圆角 token 放大 1.8 倍（`--corner-scale`，超椭圆同样半径看起来更尖）；不支持的浏览器（2026-10：Safari、Firefox 只在预览版）照旧画圆弧。正圆（头像）、胶囊写 `corner-shape: round` 覆盖
 - 动效用 spring 曲线，尊重 `prefers-reduced-motion`
 - 可点击区域 ≥ 44×44px，焦点样式可见，语义化 HTML，对比度达标
 

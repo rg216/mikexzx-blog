@@ -90,6 +90,26 @@ a {
   border-radius: var(--radius-sm);
 }
 
+/*
+ * G2 连续圆角（Apple 界面里那种曲率连续的"方圆"）：superellipse(2)，即 |x|⁴ + |y|⁴ = 1 的超椭圆，
+ * 与直边相接处曲率为 0，不像圆弧那样在接缝处曲率突变。目前只有 Chromium 支持，其他浏览器照旧画圆弧。
+ * corner-shape 不继承，所以用通配选择器；特异性为 0，组件里要正圆（头像）、胶囊的地方写 corner-shape: round 覆盖。
+ *
+ * 同样的 border-radius，超椭圆在对角线上只削掉圆弧的约一半（0.159r 对 0.293r），看起来更尖。
+ * 支持时把圆角放大 1.8 倍，对角线上的深度和原来的圆弧相当，曲线则从更远处开始弯（Apple 的连续圆角约是 1.5 倍半径）。
+ */
+@supports (corner-shape: squircle) {
+  :root {
+    --corner-scale: 1.8;
+  }
+
+  *,
+  ::before,
+  ::after {
+    corner-shape: squircle;
+  }
+}
+
 ::selection {
   background: color-mix(in srgb, var(--color-accent) 25%, transparent);
 }

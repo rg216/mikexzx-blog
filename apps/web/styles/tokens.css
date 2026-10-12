@@ -101,10 +101,12 @@
   --inset-right: max(var(--gutter), env(safe-area-inset-right));
   --inset-bottom: env(safe-area-inset-bottom, 0px);
 
-  /* ---------- 圆角 ---------- */
-  --radius-sm: 0.375rem; /* 6 */
-  --radius-md: 0.625rem; /* 10 */
-  --radius-lg: 0.875rem; /* 14 */
+  /* ---------- 圆角 ----------
+   * 支持 corner-shape 的浏览器画成 G2 连续的超椭圆圆角（globals.css），见 --corner-scale */
+  --corner-scale: 1;
+  --radius-sm: calc(0.375rem * var(--corner-scale)); /* 6 */
+  --radius-md: calc(0.625rem * var(--corner-scale)); /* 10 */
+  --radius-lg: calc(0.875rem * var(--corner-scale)); /* 14 */
 
   /* ---------- 语义色（浅色） ---------- */
   --color-label: #000000;
