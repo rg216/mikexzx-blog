@@ -1,7 +1,9 @@
-import { translationStreamEventSchema } from "@blog/shared";
+import { translationStreamEventSchema, DEFAULT_TRANSLATION_MODEL } from "@blog/shared";
 import { describe, expect, it, vi } from "vitest";
-import { type SegmentEvent, TRANSLATION_MODEL, type Translator } from "../src/lib/translator.ts";
+import { type SegmentEvent, type Translator } from "../src/lib/translator.ts";
 import { setupTestApp } from "./helpers.ts";
+
+const TRANSLATION_MODEL = DEFAULT_TRANSLATION_MODEL;
 
 /*
  * 翻译流的心跳：模型在第一段译文之前要先思考，可能几十秒没有输出。这期间 API 每隔一段时间写一行 {"type":"ping"}，
@@ -14,7 +16,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let segmentImpl: () => AsyncIterable<SegmentEvent>;
 const translator: Translator = {
-  model: TRANSLATION_MODEL,
+  verifyModel: async () => {},
   async translateTitle() {
     return { text: "Title", ...ok };
   },

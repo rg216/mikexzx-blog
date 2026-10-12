@@ -430,8 +430,10 @@ function TranslationEditorForm({ post, locale, initialTranslation }: FormProps) 
     setErrors({});
     setSaveState((prev) => (prev.kind === "error" ? { kind: "idle" } : prev));
     followStream.current = true;
+    // 模型取页面打开时读到的配置（按钮上显示的就是它）：生成中途有人改了设置也不换
+    const model = generation.config.kind === "ready" ? generation.config.config.model : undefined;
     const result = await generation.start(
-      { postId: source.id, locale, title: source.title, contentMd: source.contentMd, sourceHash: source.sourceHash },
+      { postId: source.id, locale, title: source.title, contentMd: source.contentMd, sourceHash: source.sourceHash, model },
       { resume },
     );
     if (!result) return;

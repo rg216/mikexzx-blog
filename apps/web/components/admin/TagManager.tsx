@@ -361,7 +361,7 @@ export function TagManager() {
             <div className={styles.translateRow}>
               <Button variant="secondary" busy={translating} disabled={!translationConfig?.available || values.name.trim() === ""} onClick={() => void translate()}>
                 <Sparkles aria-hidden="true" />
-                {translationConfig?.available ? `用 ${modelDisplayName(translationConfig.model)} 翻译` : "自动翻译"}
+                {translationConfig?.available ? `用 ${modelDisplayName(translationConfig.tagModel)} 翻译` : "自动翻译"}
               </Button>
               <p role="status" className={translateStatus?.kind === "error" ? styles.translateError : styles.note}>
                 {translateStatus?.text ??

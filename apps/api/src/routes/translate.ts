@@ -26,19 +26,19 @@ import {
   parseTagNameOutput,
   type SegmentEvent,
   stopReasonMessage,
-  TRANSLATION_MODEL,
   type TranslationJob,
   type TranslationStop,
   type Translator,
 } from "../lib/translator.ts";
 import { validate } from "../lib/validate.ts";
 import { type AuthEnv, sessionOf } from "../middleware/auth.ts";
+import { getSettings } from "../services/settings.ts";
 import { listAdminTags } from "../services/tags.ts";
 import { findPost } from "../services/translations.ts";
 
 /*
  * 大模型翻译的接口（挂在 /admin 下：已登录 + 同源校验 + 写操作限流都由外层负责）。
- *   GET  /translation/config                          → { available, model, reason? }：编辑器据此启用按钮、显示模型名或不能用的原因
+ *   GET  /translation/config                          → { available, model, tagModel, reason? }：编辑器据此启用按钮、显示模型名或不能用的原因
  *   POST /posts/:id/translations/:locale/generate     → 标题：JSON；正文的一段：NDJSON 流
  *   POST /tags/translate                              → 标签名的各语言译名：JSON
  * 生成的结果只回给编辑器，不入库：作者过目、保存（PUT 译文）后才对读者可见。
@@ -80,11 +80,12 @@ function abortWithRequest(request: Request): AbortController {
 export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatMs = TRANSLATION_HEARTBEAT_MS }: TranslationDeps, limiter: RateLimiter) {
   return new Hono<AuthEnv>()
     .get("/translation/config", async (c) => {
-      const model = translator?.model ?? TRANSLATION_MODEL;
+      // 模型是后台"设置"里选的
+      const { translationModel: model, tagTranslationModel: tagModel } = await getSettings(db);
       // 如实反映"现在点生成会不会成功"：配置了但 Redis 连不上时，生成会因为限流 fail-closed 返回 503
-      if (!translator) return c.json({ available: false, model, reason: "not_configured" } satisfies TranslationConfig);
-      if (!(await limiterHealthy())) return c.json({ available: false, model, reason: "rate_limiter_unavailable" } satisfies TranslationConfig);
-      return c.json({ available: true, model } satisfies TranslationConfig);
+      if (!translator) return c.json({ available: false, model, tagModel, reason: "not_configured" } satisfies TranslationConfig);
+      if (!(await limiterHealthy())) return c.json({ available: false, model, tagModel, reason: "rate_limiter_unavailable" } satisfies TranslationConfig);
+      return c.json({ available: true, model, tagModel } satisfies TranslationConfig);
     })
     /*
      * 标签名的译名：一次调用给出所有需要译名的语言。翻译的是表单里此刻的名称（新建时还没有 id），
@@ -102,10 +103,11 @@ export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatM
         .map((tag) => ({ name: tag.name, translations: tag.translations }));
       const job = { sourceLocale: tagSourceLocale, targetLocales: tagTranslationLocales, name, slug, glossary };
       const log = { tag: name, part: "tag" as const };
+      const { tagTranslationModel: model } = await getSettings(db);
 
       let outcome;
       try {
-        outcome = await translator.translateTagName(job, { signal: abortWithRequest(c.req.raw).signal });
+        outcome = await translator.translateTagName(job, { signal: abortWithRequest(c.req.raw).signal, model });
       } catch (error) {
         const failure = classifyTranslatorError(error);
         if (!failure.aborted) console.error("tag translation failed", log, error);
@@ -140,6 +142,8 @@ export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatM
 
         const job: TranslationJob = { sourceLocale: post.sourceLocale, targetLocale: locale, title: post.title, contentMd: post.contentMd };
         const log = { postId: id, locale, part: input.part };
+        // 编辑器开始生成时定下的模型（整篇同一个，提示缓存才命中）；没带时用设置里的
+        const model = input.model ?? (await getSettings(db)).translationModel;
 
         /*
          * 每次调用都花钱：在通用的写操作限流之外，再按用户限制每小时的次数。
@@ -154,7 +158,7 @@ export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatM
           if (refused) return refused;
           let outcome;
           try {
-            outcome = await translator.translateTitle(job, { signal: controller.signal });
+            outcome = await translator.translateTitle(job, { signal: controller.signal, model });
           } catch (error) {
             const failure = classifyTranslatorError(error);
             if (!failure.aborted) console.error("translation failed", log, error);
@@ -177,7 +181,7 @@ export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatM
         if (refused) return refused;
 
         const iterator = translator
-          .streamSegment(job, { index: input.index, total: segments.length, text: segment }, { signal: controller.signal })
+          .streamSegment(job, { index: input.index, total: segments.length, text: segment }, { signal: controller.signal, model })
           [Symbol.asyncIterator]();
         const segmentLog = { ...log, index: input.index };
 

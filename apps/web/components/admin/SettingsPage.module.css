@@ -1,0 +1,56 @@
+/*
+ * "设置"栏目（设置 / 状态两页）共用的页面框架：和文章列表一样在主栏里居中，后台各页面左边缘对齐。
+ * 各节（模型、Passkey、登录会话……）分属不同组件，间距由外层的 gap 统一给出。
+ */
+.page {
+  max-width: var(--content-width);
+  margin-inline: auto;
+}
+
+.title {
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-large-title);
+  font-weight: var(--font-weight-bold);
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.sectionTitle {
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-bold);
+}
+
+.sectionHint {
+  margin-block: var(--space-1) var(--space-2);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
+  color: var(--color-secondary-label);
+}
+
+/* iOS 分组列表：圆角卡片，条目之间是分隔线 */
+.list {
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-secondary-background);
+  list-style: none;
+}
+
+.item {
+  padding: var(--space-1-5) var(--space-2);
+}
+
+.item + .item {
+  border-top: 0.5px solid var(--color-separator);
+}

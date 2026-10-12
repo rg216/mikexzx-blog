@@ -44,6 +44,43 @@ export function createRevalidator({
   };
 }
 
+/** 一次探测的结果（状态页的"缓存失效通知"一项） */
+export type RevalidateProbeResult = { state: "ok" | "error"; summary: string };
+
+/**
+ * 检查 API 和前端的 REVALIDATE_SECRET 是否一致：发一个空的标签列表（前端校验通过后什么都不失效）。
+ * 两边的密钥不一致时，写文章不会报错（通知失败只记日志），前台却要等一小时的定时刷新才更新——不探测的话很难发现。
+ */
+export function createRevalidateProbe({
+  url,
+  secret,
+  fetchImpl = (...args) => fetch(...args),
+  timeoutMs = 5000,
+}: {
+  url: string;
+  secret: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}): () => Promise<RevalidateProbeResult> {
+  return async () => {
+    let res: Response;
+    try {
+      res = await fetchImpl(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+        body: JSON.stringify({ tags: [] }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch {
+      return { state: "error", summary: "连不上前端的 /hooks/revalidate" };
+    }
+    if (res.ok) return { state: "ok", summary: "前端接受通知，两边的 REVALIDATE_SECRET 一致" };
+    if (res.status === 401) return { state: "error", summary: "前端拒绝了通知：两个项目的 REVALIDATE_SECRET 不一致" };
+    if (res.status === 503) return { state: "error", summary: "前端没有设置 REVALIDATE_SECRET" };
+    return { state: "error", summary: `前端返回了 ${res.status}` };
+  };
+}
+
 type PublicState = { slug: string; status: PostStatus } | null;
 
 /**

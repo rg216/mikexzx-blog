@@ -1,0 +1,77 @@
+.purposes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+}
+
+.spinner {
+  width: 1em;
+  height: 1em;
+}
+
+.hint {
+  margin-block: var(--space-0-5) var(--space-1-5);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+}
+
+/* 整行可点：label 包着 radio，点击区域远大于 44px */
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 原生 radio（键盘、读屏都是浏览器给的），只把颜色换成 accent */
+.radio {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0.15em 0 0;
+  accent-color: var(--color-accent);
+  cursor: inherit;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.name {
+  font-weight: var(--font-weight-semibold);
+}
+
+.option:has(.radio:checked) .name {
+  color: var(--color-accent-text);
+}
+
+.summary {
+  font-size: var(--font-size-subhead);
+}
+
+.price {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}

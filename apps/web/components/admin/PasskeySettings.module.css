@@ -1,18 +1,4 @@
-/* 和文章列表一样在主栏里居中，后台各页面左边缘对齐 */
-.page {
-  max-width: var(--content-width);
-  margin-inline: auto;
-}
-
-.title {
-  margin-bottom: var(--space-3);
-  font-size: var(--font-size-large-title);
-  font-weight: var(--font-weight-bold);
-}
-
-.section + .section {
-  margin-top: var(--space-6);
-}
+/* 页面框架和各节之间的间距在 SettingsPage.module.css */
 
 .sectionTitle {
   font-size: var(--font-size-title3);

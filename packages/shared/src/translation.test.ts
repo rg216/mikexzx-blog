@@ -811,6 +811,10 @@ describe("translationGenerateInputSchema", () => {
     expect(translationGenerateInputSchema.parse({ part: "title", sourceHash })).toEqual({ part: "title", sourceHash });
   });
 
+  it("accepts the model the editor started with", () => {
+    expect(translationGenerateInputSchema.parse({ part: "body", index: 0, sourceHash, model: "claude-opus-5-5" })).toMatchObject({ model: "claude-opus-5-5" });
+  });
+
   it("accepts a body segment request", () => {
     expect(translationGenerateInputSchema.parse({ part: "body", index: 0, sourceHash })).toEqual({ part: "body", index: 0, sourceHash });
     expect(translationGenerateInputSchema.parse({ part: "body", index: 12, sourceHash })).toMatchObject({ index: 12 });
@@ -827,6 +831,7 @@ describe("translationGenerateInputSchema", () => {
     ["a missing source hash", { part: "title" }],
     ["an invalid source hash", { part: "title", sourceHash: "abc" }],
     ["unknown fields", { part: "body", index: 0, sourceHash, locale: "en" }],
+    ["a model that is not on the list", { part: "title", sourceHash, model: "claude-sonnet-4-5" }],
   ])("rejects %s", (_name, value) => {
     expect(translationGenerateInputSchema.safeParse(value).success).toBe(false);
   });
@@ -879,16 +884,18 @@ describe("translationTitleResultSchema", () => {
 
 describe("translationConfigSchema", () => {
   it.each([
-    { available: true, model: "claude-sonnet-5-5" },
-    { available: false, model: "claude-sonnet-5-5", reason: "not_configured" },
-    { available: false, model: "claude-sonnet-5-5", reason: "rate_limiter_unavailable" },
+    { available: true, model: "claude-sonnet-5-5", tagModel: "claude-haiku-5-5" },
+    { available: false, model: "claude-sonnet-5-5", tagModel: "claude-sonnet-5-5", reason: "not_configured" },
+    { available: false, model: "claude-opus-5-5", tagModel: "claude-sonnet-5-5", reason: "rate_limiter_unavailable" },
   ])("accepts %o", (value) => {
     expect(translationConfigSchema.parse(value)).toEqual(value);
   });
 
   it.each([
-    ["an empty model", { available: true, model: "" }],
-    ["a missing model", { available: true }],
+    ["an empty model", { available: true, model: "", tagModel: "claude-sonnet-5-5" }],
+    ["a missing model", { available: true, tagModel: "claude-sonnet-5-5" }],
+    ["a missing tag model", { available: true, model: "claude-sonnet-5-5" }],
+    ["a model that is not on the list", { available: true, model: "claude-sonnet-5", tagModel: "claude-sonnet-5-5" }],
     ["a non-boolean available", { available: "yes", model: "m" }],
     ["unavailable without a reason", { available: false, model: "m" }],
     ["an unknown reason", { available: false, model: "m", reason: "maintenance" }],
@@ -897,7 +904,8 @@ describe("translationConfigSchema", () => {
   });
 
   it("drops a reason sent along with available: true", () => {
-    expect(translationConfigSchema.parse({ available: true, model: "m", reason: "not_configured" })).toEqual({ available: true, model: "m" });
+    const models = { model: "claude-sonnet-5-5", tagModel: "claude-sonnet-5-5" } as const;
+    expect(translationConfigSchema.parse({ available: true, ...models, reason: "not_configured" })).toEqual({ available: true, ...models });
   });
 });
 

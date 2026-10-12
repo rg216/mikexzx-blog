@@ -5,6 +5,7 @@ import { normalizeUri } from "micromark-util-sanitize-uri";
 import { unified } from "unified";
 import { z } from "zod";
 import { apiErrorCodeSchema, sourceHashSchema, TRANSLATION_MODEL_MAX_LENGTH } from "./post.ts";
+import { translationModelIdSchema } from "./settings.ts";
 
 /*
  * 大模型翻译（v5.5）前后端共用的部分：分段、结构校验、生成接口的输入输出。
@@ -604,10 +605,12 @@ export function checkTranslationStructure(source: string, translation: string): 
 /**
  * 请求生成标题，或正文的第 index 段（段号按 splitMarkdownForTranslation(原文) 计算）。
  * sourceHash 是编辑器加载文章时拿到的原文指纹：原文在此之后改过的话段落对不上，API 返回 409。
+ * model：编辑器在开始生成时定下的模型，同一篇的标题和每一段都带同一个——提示缓存按模型分开，
+ * 中途有人改了设置也不会换模型、错过缓存。不带时用设置里的 translationModel。
  */
 export const translationGenerateInputSchema = z.discriminatedUnion("part", [
-  z.strictObject({ part: z.literal("title"), sourceHash: sourceHashSchema }),
-  z.strictObject({ part: z.literal("body"), index: z.int().nonnegative(), sourceHash: sourceHashSchema }),
+  z.strictObject({ part: z.literal("title"), sourceHash: sourceHashSchema, model: translationModelIdSchema.optional() }),
+  z.strictObject({ part: z.literal("body"), index: z.int().nonnegative(), sourceHash: sourceHashSchema, model: translationModelIdSchema.optional() }),
 ]);
 export type TranslationGenerateInput = z.infer<typeof translationGenerateInputSchema>;
 
@@ -620,12 +623,13 @@ export const translationUnavailableReasons = ["not_configured", "rate_limiter_un
 export type TranslationUnavailableReason = (typeof translationUnavailableReasons)[number];
 
 /**
- * GET /admin/translation/config：现在能不能生成译文、用哪个模型；不能时说明原因。
+ * GET /admin/translation/config：现在能不能生成译文、用哪个模型（设置里选的：文章 model、标签 tagModel）；不能时说明原因。
  * 编辑器据此启用"生成译文"按钮、显示模型名或原因。
  */
+const configModels = { model: translationModelIdSchema, tagModel: translationModelIdSchema };
 export const translationConfigSchema = z.discriminatedUnion("available", [
-  z.object({ available: z.literal(true), model: z.string().min(1) }),
-  z.object({ available: z.literal(false), model: z.string().min(1), reason: z.enum(translationUnavailableReasons) }),
+  z.object({ available: z.literal(true), ...configModels }),
+  z.object({ available: z.literal(false), ...configModels, reason: z.enum(translationUnavailableReasons) }),
 ]);
 export type TranslationConfig = z.infer<typeof translationConfigSchema>;
 

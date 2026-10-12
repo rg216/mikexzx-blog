@@ -20,7 +20,7 @@ export const REVALIDATE_MAX_TAGS = 50;
 export const revalidateRequestSchema = z.strictObject({
   tags: z
     .array(z.string().min(1).max(256))
-    .min(1)
+    // 允许空数组：API 的状态页发一个空列表，检查两边的密钥是否一致（什么都不失效）
     .max(REVALIDATE_MAX_TAGS),
 });
 export type RevalidateRequest = z.infer<typeof revalidateRequestSchema>;

@@ -7,7 +7,7 @@ import { simpleWebAuthn, type WebAuthn } from "./auth/webauthn.ts";
 import type { Db } from "./db/client.ts";
 import { errorBody, HttpError, pgErrorOf, uniqueViolationMessage } from "./lib/errors.ts";
 import { createRateLimiter, unlimited } from "./lib/rate-limit.ts";
-import { noopRevalidator, type Revalidator } from "./lib/revalidate.ts";
+import { noopRevalidator, type RevalidateProbeResult, type Revalidator } from "./lib/revalidate.ts";
 import { type AuthEnv, loadCommenter, loadSession, requireSameOrigin } from "./middleware/auth.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { type RedisProvider, redisReachable } from "./redis.ts";
@@ -29,6 +29,10 @@ type AppOptions = {
   webauthn?: WebAuthn;
   /** 写入文章后通知前端失效缓存；默认不通知 */
   revalidate?: Revalidator;
+  /** 状态页用：检查前端是否接受通知（两边的 REVALIDATE_SECRET 是否一致）；不传表示没有配置 */
+  revalidateProbe?: (() => Promise<RevalidateProbeResult>) | null;
+  /** 测试用：状态页每项检查的超时（毫秒） */
+  statusTimeoutMs?: number;
   /** 限流与阅读计数用；不传则不限流、不计数 */
   redis?: RedisProvider | null;
   /** 图片上传用的对象存储；不传则上传接口返回 503 */
@@ -53,6 +57,8 @@ export function createApp({
   auth,
   webauthn = simpleWebAuthn,
   revalidate = noopRevalidator,
+  revalidateProbe = null,
+  statusTimeoutMs,
   redis = null,
   storage = null,
   github = null,
@@ -88,7 +94,18 @@ export function createApp({
     limiterHealthy: () => (redis ? redisReachable(redis) : Promise.resolve(false)),
     ...(translationHeartbeatMs === undefined ? {} : { heartbeatMs: translationHeartbeatMs }),
   };
-  app.route("/admin", adminRoutes(db, revalidate, limiter, storage, github, translation));
+  const status = {
+    version,
+    redis,
+    storage,
+    githubConfigured: github !== null,
+    // 状态页要分别说明"有没有密钥"和"有没有 Redis"，所以给它没经过 Redis 过滤的那个
+    translator,
+    probeRevalidate: revalidateProbe,
+    cronConfigured: Boolean(cronSecret),
+    ...(statusTimeoutMs === undefined ? {} : { timeoutMs: statusTimeoutMs }),
+  };
+  app.route("/admin", adminRoutes(db, revalidate, limiter, storage, github, translation, status));
   app.route("/internal", internalRoutes(db, redis, storage, cronSecret));
 
   app.notFound((c) => c.json(errorBody("not_found", "接口不存在"), 404));

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { DEFAULT_TRANSLATION_MODEL } from "@blog/shared";
 import { describe, expect, it } from "vitest";
 import {
   buildSegmentRequest,
@@ -18,13 +19,14 @@ import {
   sourceDocument,
   stopReasonMessage,
   TITLE_MAX_TOKENS,
-  TRANSLATION_MODEL,
   type TranslationJob,
   translationStyles,
   translationSystemPrompt,
   servedByFallback,
   usageFrom,
 } from "./translator.ts";
+
+const TRANSLATION_MODEL = DEFAULT_TRANSLATION_MODEL;
 
 const job: TranslationJob = {
   sourceLocale: "zh",
@@ -43,7 +45,7 @@ function userBlocks(request: ReturnType<typeof buildTitleRequest>) {
 
 describe("request builders", () => {
   it("use the chosen model, adaptive thinking at high effort and the default server-side fallback", () => {
-    for (const request of [buildTitleRequest(job), buildSegmentRequest(job, segment)]) {
+    for (const request of [buildTitleRequest(TRANSLATION_MODEL, job), buildSegmentRequest(TRANSLATION_MODEL, job, segment)]) {
       expect(request.model).toBe("claude-sonnet-5-5");
       expect(request.model).toBe(TRANSLATION_MODEL);
       expect(request.thinking).toEqual({ type: "adaptive" });
@@ -61,18 +63,33 @@ describe("request builders", () => {
     }
   });
 
+  it("leave out the server-side fallback for a model that has none (Haiku), and are otherwise the same for every model", () => {
+    for (const request of [buildTitleRequest("claude-haiku-5-5", job), buildSegmentRequest("claude-haiku-5-5", job, segment)]) {
+      expect(request.model).toBe("claude-haiku-5-5");
+      expect(request).not.toHaveProperty("fallbacks");
+      expect(request).not.toHaveProperty("betas");
+    }
+    for (const model of ["claude-opus-5-5", "claude-fable-5-1"] as const) {
+      const { model: requested, ...rest } = buildSegmentRequest(model, job, segment);
+      expect(requested).toBe(model);
+      const { model: _sonnet, ...sonnet } = buildSegmentRequest(TRANSLATION_MODEL, job, segment);
+      expect(rest).toEqual(sonnet);
+    }
+    expect(buildTagNameRequest("claude-haiku-5-5", { sourceLocale: "zh", targetLocales: ["en"], name: "排版", slug: "", glossary: [] }).model).toBe("claude-haiku-5-5");
+  });
+
   it("give segments room to stream and titles room to think", () => {
-    expect(buildSegmentRequest(job, segment).max_tokens).toBe(64_000);
+    expect(buildSegmentRequest(TRANSLATION_MODEL, job, segment).max_tokens).toBe(64_000);
     expect(SEGMENT_MAX_TOKENS).toBe(64_000);
-    expect(buildTitleRequest(job).max_tokens).toBe(TITLE_MAX_TOKENS);
+    expect(buildTitleRequest(TRANSLATION_MODEL, job).max_tokens).toBe(TITLE_MAX_TOKENS);
     expect(TITLE_MAX_TOKENS).toBe(4_000);
     expect(TITLE_MAX_TOKENS).toBeLessThan(SEGMENT_MAX_TOKENS);
   });
 
   it("share a byte-identical prefix (system + whole article, cache breakpoint on the article) across title and segments", () => {
-    const title = buildTitleRequest(job);
-    const first = buildSegmentRequest(job, { index: 0, total: 3, text: "第一段。\n\n" });
-    const second = buildSegmentRequest(job, segment);
+    const title = buildTitleRequest(TRANSLATION_MODEL, job);
+    const first = buildSegmentRequest(TRANSLATION_MODEL, job, { index: 0, total: 3, text: "第一段。\n\n" });
+    const second = buildSegmentRequest(TRANSLATION_MODEL, job, segment);
     expect(first.system).toBe(title.system);
     expect(second.system).toBe(title.system);
 
@@ -95,12 +112,12 @@ describe("request builders", () => {
     const doc = sourceDocument(job);
     expect(doc).toContain(job.title);
     expect(doc).toContain(job.contentMd);
-    const [, task] = userBlocks(buildSegmentRequest(job, segment));
+    const [, task] = userBlocks(buildSegmentRequest(TRANSLATION_MODEL, job, segment));
     if (task?.type !== "text") throw new Error("expected text");
     expect(task.text).toContain("part 2 of 3");
     expect(task.text).toContain(`<part>\n${segment.text}\n</part>`);
     expect(task.text).toContain("Japanese");
-    const [, titleTask] = userBlocks(buildTitleRequest(job));
+    const [, titleTask] = userBlocks(buildTitleRequest(TRANSLATION_MODEL, job));
     if (titleTask?.type !== "text") throw new Error("expected text");
     expect(titleTask.text).toContain("title");
     expect(titleTask.text).toContain("into Japanese");
@@ -315,7 +332,7 @@ function sse(events: object[]): Response {
   return new Response(text, { status: 200, headers: { "content-type": "text/event-stream", "request-id": "req_test" } });
 }
 
-const messageStart = (model = TRANSLATION_MODEL) => ({
+const messageStart = (model: string = TRANSLATION_MODEL) => ({
   type: "message_start",
   message: {
     id: "msg_test",
@@ -351,7 +368,7 @@ function fakeFetch(respond: (captured: Captured) => Response | Promise<Response>
     const captured = {
       url: String(input instanceof Request ? input.url : input),
       headers: new Headers(init?.headers),
-      body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+      body: (init?.body === undefined ? {} : JSON.parse(String(init.body))) as Record<string, unknown>,
       signal: init?.signal ?? null,
     };
     calls.push(captured);
@@ -382,7 +399,7 @@ describe("createAnthropicTranslator", () => {
       ]),
     );
     const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
-    const events = await collect(translator.streamSegment(job, segment, { signal: signal() }));
+    const events = await collect(translator.streamSegment(job, segment, { signal: signal(), model: TRANSLATION_MODEL }));
 
     expect(events).toEqual([
       { type: "start" },
@@ -405,7 +422,7 @@ describe("createAnthropicTranslator", () => {
     expect(call?.url).toMatch(/\/v1\/messages\?beta=true$/);
     expect(call?.headers.get("anthropic-beta")).toBe(SERVER_SIDE_FALLBACK_BETA);
     expect(call?.headers.get("x-api-key")).toBe("test-key");
-    const { betas: _betas, ...expected } = buildSegmentRequest(job, segment);
+    const { betas: _betas, ...expected } = buildSegmentRequest(TRANSLATION_MODEL, job, segment);
     expect(call?.body).toEqual({ ...expected, stream: true });
   });
 
@@ -425,7 +442,7 @@ describe("createAnthropicTranslator", () => {
       ]),
     );
     const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
-    const events = await collect(translator.streamSegment(job, segment, { signal: signal() }));
+    const events = await collect(translator.streamSegment(job, segment, { signal: signal(), model: TRANSLATION_MODEL }));
     expect(events.at(-1)).toMatchObject({ type: "done", text: "Hello world", model: "claude-sonnet-5", stopReason: "end_turn" });
   });
 
@@ -434,7 +451,7 @@ describe("createAnthropicTranslator", () => {
       sse([messageStart(), ...textBlock(0, "部分"), ...messageEnd("refusal", { type: "refusal", category: "cyber", explanation: null })]),
     );
     const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
-    const events = await collect(translator.streamSegment(job, segment, { signal: signal() }));
+    const events = await collect(translator.streamSegment(job, segment, { signal: signal(), model: TRANSLATION_MODEL }));
     expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "refusal", refusalCategory: "cyber" });
   });
 
@@ -445,7 +462,7 @@ describe("createAnthropicTranslator", () => {
     const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
     const seen: SegmentEvent[] = [];
     const error = await (async () => {
-      for await (const event of translator.streamSegment(job, segment, { signal: signal() })) seen.push(event);
+      for await (const event of translator.streamSegment(job, segment, { signal: signal(), model: TRANSLATION_MODEL })) seen.push(event);
     })().then(
       () => null,
       (e: unknown) => e,
@@ -460,7 +477,7 @@ describe("createAnthropicTranslator", () => {
     // 流里没有 message_delta：stop_reason 一直是 null
     const { fetchImpl } = fakeFetch(() => sse([messageStart(), ...textBlock(0, "部分"), { type: "message_stop" }]));
     const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
-    const events = await collect(translator.streamSegment(job, segment, { signal: signal() }));
+    const events = await collect(translator.streamSegment(job, segment, { signal: signal(), model: TRANSLATION_MODEL }));
     expect(events.at(-1)).toMatchObject({ type: "done", text: "部分", stopReason: "unknown", refusalCategory: null });
     expect(stopReasonMessage("unknown", null)).toContain("没有正常结束");
   });
@@ -480,7 +497,7 @@ describe("createAnthropicTranslator", () => {
       ]),
     );
     const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
-    const events = await collect(translator.streamSegment(job, segment, { signal: signal() }));
+    const events = await collect(translator.streamSegment(job, segment, { signal: signal(), model: TRANSLATION_MODEL }));
     expect(events.at(-1)).toMatchObject({
       type: "done",
       model: "claude-sonnet-5",
@@ -498,8 +515,8 @@ describe("createAnthropicTranslator", () => {
         }),
     );
     const translator = createAnthropicTranslator("bad-key", { fetch: fetchImpl, maxRetries: 0 });
-    await expect(collect(translator.streamSegment(job, segment, { signal: signal() }))).rejects.toBeInstanceOf(Anthropic.AuthenticationError);
-    await expect(translator.translateTitle(job, { signal: signal() })).rejects.toBeInstanceOf(Anthropic.AuthenticationError);
+    await expect(collect(translator.streamSegment(job, segment, { signal: signal(), model: TRANSLATION_MODEL }))).rejects.toBeInstanceOf(Anthropic.AuthenticationError);
+    await expect(translator.translateTitle(job, { signal: signal(), model: TRANSLATION_MODEL })).rejects.toBeInstanceOf(Anthropic.AuthenticationError);
   });
 
   it("aborts the upstream request when the signal fires", async () => {
@@ -524,7 +541,7 @@ describe("createAnthropicTranslator", () => {
     const controller = new AbortController();
     const seen: SegmentEvent[] = [];
     const run = (async () => {
-      for await (const event of translator.streamSegment(job, segment, { signal: controller.signal })) {
+      for await (const event of translator.streamSegment(job, segment, { signal: controller.signal, model: TRANSLATION_MODEL })) {
         seen.push(event);
         if (event.type === "delta") controller.abort();
       }
@@ -553,7 +570,7 @@ describe("createAnthropicTranslator", () => {
       );
     });
     const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
-    for await (const event of translator.streamSegment(job, segment, { signal: new AbortController().signal })) {
+    for await (const event of translator.streamSegment(job, segment, { signal: new AbortController().signal, model: TRANSLATION_MODEL })) {
       if (event.type === "delta") break;
     }
     expect((fetchSignal as AbortSignal | null)?.aborted).toBe(true);
@@ -581,8 +598,7 @@ describe("createAnthropicTranslator", () => {
         ),
     );
     const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
-    expect(translator.model).toBe(TRANSLATION_MODEL);
-    const outcome = await translator.translateTitle(job, { signal: signal() });
+    const outcome = await translator.translateTitle(job, { signal: signal(), model: TRANSLATION_MODEL });
     expect(outcome).toEqual({
       text: "「HonoでAPIを書く」",
       stopReason: "end_turn",
@@ -591,9 +607,24 @@ describe("createAnthropicTranslator", () => {
       usage: { inputTokens: 900, outputTokens: 20, cacheReadInputTokens: 0, cacheCreationInputTokens: 850 },
       fallback: false,
     });
-    const { betas: _betas, ...expected } = buildTitleRequest(job);
+    const { betas: _betas, ...expected } = buildTitleRequest(TRANSLATION_MODEL, job);
     expect(calls[0]?.body).toEqual(expected);
     expect(calls[0]?.headers.get("anthropic-beta")).toBe(SERVER_SIDE_FALLBACK_BETA);
+  });
+
+  it("checks a model with a free GET /v1/models/{id}, surfacing the SDK error when the key is bad", async () => {
+    const { fetchImpl, calls } = fakeFetch(() =>
+      Response.json({ type: "model", id: "claude-haiku-5-5", display_name: "Claude Haiku 5.5", created_at: "2026-10-07T00:00:00Z" }),
+    );
+    const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
+    await translator.verifyModel("claude-haiku-5-5", { signal: signal() });
+    expect(calls[0]?.url).toMatch(/\/v1\/models\/claude-haiku-5-5$/);
+
+    const { fetchImpl: rejecting } = fakeFetch(() =>
+      Response.json({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }, { status: 401 }),
+    );
+    const bad = createAnthropicTranslator("bad-key", { fetch: rejecting, maxRetries: 0 });
+    await expect(bad.verifyModel("claude-sonnet-5-5", { signal: signal() })).rejects.toBeInstanceOf(Anthropic.AuthenticationError);
   });
 
   it("names a tag with one plain (non-beta-header) JSON request", async () => {
@@ -618,9 +649,9 @@ describe("createAnthropicTranslator", () => {
         ),
     );
     const translator = createAnthropicTranslator("test-key", { fetch: fetchImpl, maxRetries: 0 });
-    const outcome = await translator.translateTagName(tagJob, { signal: signal() });
+    const outcome = await translator.translateTagName(tagJob, { signal: signal(), model: TRANSLATION_MODEL });
     expect(outcome).toMatchObject({ text: '{"en":"Typography","ja":"タイポグラフィ"}', stopReason: "end_turn", model: TRANSLATION_MODEL });
-    expect(calls[0]?.body).toEqual(buildTagNameRequest(tagJob));
+    expect(calls[0]?.body).toEqual(buildTagNameRequest(TRANSLATION_MODEL, tagJob));
     expect(calls[0]?.headers.get("anthropic-beta")).toBeNull();
   });
 });
@@ -635,7 +666,7 @@ const tagJob: TagNameJob = {
 
 describe("buildTagNameRequest", () => {
   it("asks for a JSON object with exactly one string per target language", () => {
-    const request = buildTagNameRequest(tagJob);
+    const request = buildTagNameRequest(TRANSLATION_MODEL, tagJob);
     expect(request).toMatchObject({ model: TRANSLATION_MODEL, max_tokens: TAG_NAME_MAX_TOKENS, thinking: { type: "adaptive" } });
     expect(request.output_config).toEqual({
       effort: "low",
@@ -655,7 +686,7 @@ describe("buildTagNameRequest", () => {
   });
 
   it("gives the name, the slug hint, the existing tags and each language's naming style", () => {
-    const request = buildTagNameRequest(tagJob);
+    const request = buildTagNameRequest(TRANSLATION_MODEL, tagJob);
     expect(request.messages).toEqual([
       { role: "user", content: "Existing tags on this blog, for consistent style:\n- 设计: en=Design, ja=デザイン\n\nTag: 排版\nIts URL slug (often an English hint of the meaning): typography" },
     ]);
@@ -665,7 +696,7 @@ describe("buildTagNameRequest", () => {
   });
 
   it("leaves out the glossary and slug when there are none", () => {
-    expect(buildTagNameRequest({ ...tagJob, slug: "", glossary: [] }).messages).toEqual([{ role: "user", content: "Tag: 排版" }]);
+    expect(buildTagNameRequest(TRANSLATION_MODEL, { ...tagJob, slug: "", glossary: [] }).messages).toEqual([{ role: "user", content: "Tag: 排版" }]);
   });
 });
 

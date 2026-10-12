@@ -300,7 +300,7 @@ describe("saving machine translations (v5.5)", () => {
 
 describe("LLM translation without ANTHROPIC_API_KEY", () => {
   it("reports translation as unavailable and answers generate requests with 503", async () => {
-    expect((await request("GET", "/admin/translation/config")).body).toEqual({ available: false, model: "claude-sonnet-5-5", reason: "not_configured" });
+    expect((await request("GET", "/admin/translation/config")).body).toEqual({ available: false, model: "claude-sonnet-5-5", tagModel: "claude-sonnet-5-5", reason: "not_configured" });
     const { id } = await createPost({ slug: "a" });
     const res = await request("POST", `/admin/posts/${id}/translations/en/generate`, {
       body: { part: "title", sourceHash: (await getPost(id)).sourceHash },

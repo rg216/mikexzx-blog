@@ -1,4 +1,4 @@
-/* 外观同 SegmentedControl */
+/* 外观同 SegmentedControl（但这些是链接） */
 .tabs {
   display: inline-flex;
   margin-bottom: var(--space-2);

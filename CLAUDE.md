@@ -76,7 +76,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 标签所有语言共用（同一组 `post_tags`），名称按语言显示：`tags.name` 是原文语言（`tagSourceLocale`，即 zh）的名称，其他语言的译名在 `tag_translations`（每种语言一个，同一语言内不分大小写唯一）
   - 新建、编辑标签时每种语言的译名都必填（`tagTranslationsInputSchema`）；旧标签缺译名时前台显示原文名称，后台列表标出"缺英语、日语名称"，编辑时补上
   - 前台、各语言的搜索索引都用该语言的名称（`tagsByPostId(db, ids, locale)` / `localizedTagName`）；后台用原文名称
-  - 编辑框里"用 Sonnet 5.5 翻译"：`POST /admin/tags/translate`（`{ name, slug }`，翻译表单里此刻的名称，新建时也能用），一次调用给出所有语言的译名，只填进输入框、保存后才生效；站上已有的完整译名作参考，保持风格一致。结构化输出（`output_config.format` JSON Schema，effort low），**不用服务端回退**（文档没确认回退模型支持结构化输出；标签名几乎不会触发拒答）；结果仍用 zod 校验（截断、拒答时输出可能不符合 schema）。和文章翻译共用 `rules.translate` 限流额度
+  - 编辑框里"用 <模型> 翻译"（模型是设置里的"标签翻译"，见"设置与状态页"）：`POST /admin/tags/translate`（`{ name, slug }`，翻译表单里此刻的名称，新建时也能用），一次调用给出所有语言的译名，只填进输入框、保存后才生效；站上已有的完整译名作参考，保持风格一致。结构化输出（`output_config.format` JSON Schema，effort low），**不用服务端回退**（文档没确认回退模型支持结构化输出；标签名几乎不会触发拒答）；结果仍用 zod 校验（截断、拒答时输出可能不符合 schema）。和文章翻译共用 `rules.translate` 限流额度
 - 标签名在原文和译文的搜索索引里，也显示在每种语言的文章页上：改名、改译名、合并、删除后重建用到它的文章及其译文的索引（不改 `updated_at` / `translated_at`），并刷新这些已发布文章在每种语言下的页面和列表；缓存标签多于 50 个（`REVALIDATE_MAX_TAGS`）时 revalidate 分批发送
 - 合并：用到 A 的文章改用 B（保持原位置），同时有 A、B 的只去掉 A，然后删除 A
 
@@ -87,6 +87,16 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 筛选：`GET /posts` 和 `GET /search` 都接受 `tags`（逗号分隔，文章须同时带有全部标签，≤ 10 个）、`from` / `to`（`YYYY-MM`，两端都含，按站点时区 `SITE_TIME_ZONE` 算月份边界，`postFilterCondition`）。搜索页：有关键词时走搜索（相关度前 20），只有筛选条件时走列表（按时间、可加载更多）；条件同步到网址。组合条件只出现在不被收录的搜索页里，不生成可收录的组合网址。月份下拉框只列有文章的月份（从归档接口推出），不用 `<input type="month">`（Safari、Firefox 桌面版不支持）
 - 头图：`posts.cover_image` 存媒体库图片的地址（和正文图片一样按 key 识别，只收媒体库图片），各语言共用，算作图片引用（`post_images`，删除要 force）。公开接口返回 `cover`（地址、媒体库里的描述作 alt、宽高、尺寸版本；图片被强制删除后为 null）。显示在文章页顶部（沿用正文"大"图的规则：出血 864、手机贴边，LCP 所以 `fetchpriority=high`）、列表卡片右侧缩略图（4:3 裁切，装饰性 alt 为空）、`og:image`（≥ 1200 的最小版本）+ `twitter:card=summary_large_image`。编辑器的"头图"用媒体选择器的只选图模式
 - 改标签 slug 时，标签管理里提示旧的标签页网址会失效；不做跳转
+
+## 设置与状态页
+- 密钥、连接地址只放环境变量，不做进后台：数据库会进备份和导出，后台被攻破（XSS、session 泄露）时也能读出来；加密存库的话主密钥还得放环境变量；数据库地址这类本来就进不了数据库。后台只放不涉密、改了要马上生效的设置
+- 运行时设置：`settings` 表（一个键一行，值是 jsonb），格式由 shared 的 `siteSettingsSchema` 逐键校验，读到不合法的值（比如模型下架了）用默认值（`settingsFromRows`）。`GET / PATCH /admin/settings`，每次请求读一次，不缓存
+  - 翻译模型：`translationModels`（shared，2026-10 按官方文档核对：Haiku 5.5 / Sonnet 5.5 / Opus 5.5 / Fable 5.1，接受同一套请求参数，只有 Haiku 没有服务端回退）。文章翻译、标签翻译各选一个（`translationModel` / `tagTranslationModel`），默认都是 Sonnet 5.5（和加设置之前一样）。设置页选了就保存
+- 状态页 `/admin/settings/status`（`GET /admin/status`）：只报告"配了没有、能不能用"，不返回任何配置值；每项检查独立、5 秒超时，一项挂住不影响其他项
+  - 数据库（`select 1`）、迁移（打包进来的 `drizzle/meta/_journal.json` 和库里 `drizzle.__drizzle_migrations` 比较，指出没执行的迁移）、Redis（PING）、图片存储（HEAD 一个不存在的对象：凭证对是 404）、Claude API（`GET /v1/models/{id}`，不花钱，检查设置里选的模型）、GitHub（只看配置）、缓存失效通知（向前端 `/hooks/revalidate` 发空的标签列表，检查两边的 `REVALIDATE_SECRET` 是否一致）、CRON_SECRET
+  - 定时任务：每次运行的结果记在 `job_runs`（每个任务一行，覆盖写，`recordJobRun`；失败时保留上次成功的时间），超过 26 小时没成功提示"注意"
+  - 部署版本：前端（构建时的 `VERCEL_GIT_COMMIT_SHA`）和 API 的 `/health` 版本比较，不一致说明有一边还在部署或部署失败
+  - 不自动轮询：每次检查都会连各个服务（包括 Anthropic）
 
 ## 评论（v4c）
 - 评论者用 GitHub 登录（GitHub App，不申请任何权限，只读公开资料；一个 App 配本地和线上两个回调地址），与管理员的 Passkey 体系完全分开：
@@ -142,9 +152,10 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 原则：**内容准确优先于翻译完整**。宁可某种语言少一篇文章（不进列表、直接访问显示原文 + 提示），也不给读者看可能错误的译文：
   - 没有译文就显示原文，不做读者触发的即时翻译；结构校验不通过的机器译文不发布
   - 原文改过之后，译文页明确标注"原文已更新"并链接原文；后台标出过时的译文
-- 大模型翻译（v5.5）：译文编辑页由作者手动点击"用 Sonnet 5.5 生成译文"调用 Claude API，结果先进编辑器给作者过目，**保存后才对读者可见**（与手工译文同一条 PUT 保存路径）
+- 大模型翻译（v5.5）：译文编辑页由作者手动点击"用 <模型> 生成译文"调用 Claude API，结果先进编辑器给作者过目，**保存后才对读者可见**（与手工译文同一条 PUT 保存路径）
   - 只由作者的操作触发，读者和爬虫触发不了 LLM 调用，成本可控；不做 X 那种读者点了才翻译（会被刷额度、搜索引擎收录不到）。不在发布时自动生成
-  - 模型 Claude Sonnet 5.5（`claude-sonnet-5-5`，常量 `TRANSLATION_MODEL`，`apps/api/src/lib/translator.ts`）；官方 SDK `@anthropic-ai/sdk`，`client.beta.messages.stream`：自适应思考、effort high（准确优先，标题和正文同一个值，否则缓存失效）、不发采样参数；开启服务端回退（`fallbacks: "default"`），记录的 `model` 是实际服务的模型；SDK 默认重试 2 次
+  - 模型在后台"设置"里选（文章、标签各一个，默认都是 Sonnet 5.5，见"设置与状态页"）；官方 SDK `@anthropic-ai/sdk`，`client.beta.messages.stream`：自适应思考、effort high（准确优先，标题和正文同一个值，否则缓存失效；各模型默认值不同，所以显式写出）、不发采样参数；有服务端回退的模型开启回退（`fallbacks: "default"`，Haiku 5.5 没有、不发），记录的 `model` 是实际服务的模型；SDK 默认重试 2 次
+  - 编辑器在开始生成时定下模型（页面打开时读到的配置），标题和每一段的请求都带同一个 `model`：提示缓存按模型分开，生成中途有人改了设置也不换
   - 环境变量 `ANTHROPIC_API_KEY`（API 项目，可选），且必须同时有 `REDIS_URL`：缺任何一个时 `GET /admin/translation/config` 返回 `available: false, reason: "not_configured"`、生成接口 503；配置齐了但 Redis 此刻连不上（PING 失败）时返回 `reason: "rate_limiter_unavailable"`（生成会因限流 fail-closed 而 503）。config 的形状是 shared 的 `translationConfigSchema`（按 available 区分的联合类型），编辑器按 reason 显示说明（`unavailableReasonNotes`），按钮禁用，其他功能照常（没有 Redis 就限不了流，`createApp` 不启用翻译并在启动时警告）。测试经 `createApp({ translator })` 注入假实现（同时要 `withRedis`），绝不调用真 API
   - **分段**：正文最长 20 万字，一次输出可能超过输出上限，也远超函数的最长执行时间。所以按 Markdown 顶层块切成 ≤ 6000 字的段（`splitMarkdownForTranslation`，`@blog/shared`，前后端同一个纯函数、段数一致；不切开代码块 / 表格 / 列表 / 引用，单块超长单独成段，段不以标题结尾，`join("")` 等于原文），**浏览器逐段请求**，每段一次 API 调用、一次函数调用。标题单独一次非流式请求（`max_tokens` 4000：思考也计入），正文段流式（`max_tokens` 64000）
   - **提示缓存**：每个请求的前缀都是"稳定的系统提示（只依赖语言对，不含日期、id）+ 整篇原文"，`cache_control` 打在整篇原文那个块上，"翻译第 i 段"的指令在它后面——标题先写缓存，各段读缓存，模型看得到全文、术语前后一致。编辑器一次只发一个请求（并行会全部错过缓存）
@@ -196,6 +207,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - `commenters`（GitHub 用户，trust：default | trusted | blocked）、`commenter_sessions`、`oauth_states`
 - `comments`：post_id, commenter_id, root_id / parent_id（楼中楼）, body, status（pending | approved | rejected）
 - `post_views`
+- `settings`（key, value jsonb：后台的运行时设置）、`job_runs`（每个定时任务最近一次的结果）
 - `images`：key, content_type, size, filename, width / height, variants, folder_id, description, confirmed_at（NULL 为待确认）；`media_folders`；`post_images`（由原文 + 所有译文的正文推导）
 
 ## 安全
@@ -229,6 +241,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - 分页：列表类页面（首页、标签页）翻页
   - 改标签 slug 时提示"旧网址会失效"，不做跳转
   - 做完先停下讨论，再做 v5 的其余部分
+- [x] 设置与状态页（见"设置与状态页"）：后台选择翻译模型（文章、标签各一个），系统状态页（上线前：Neon 执行迁移 0012，再部署 API）
 - [ ] v5 工程化：Docker 镜像、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）、按顺序部署（先 API、迁移，后前端）
 - [x] v5.5 大模型翻译（见"多语言"）：译文编辑页手动点击生成（Sonnet 5.5，分段流式、提示缓存），作者过目后保存；结构校验，未修改的机器译文记为 machine（上线前：API 项目设 `ANTHROPIC_API_KEY`（还要有 `REDIS_URL`），没设之前生成按钮是禁用的；Anthropic Console 设每月花费上限；首次部署后在函数详情里确认默认 Max Duration 是 300 秒（未核实的假设，见"函数时长与代理"）、长段落经 `/api` 代理不被掐断）
 - [ ] v6 收款：**暂缓，方案待定**。Stripe 不可用：Stripe 日本不允许以个人名义接受捐赠。需要先确定收款场景（打赏 / 付费文章 / 订阅）和收款主体，再选服务；无论用哪家，支付本身交给托管支付页，订单状态、webhook 签名校验、幂等、对账自己实现

@@ -11,7 +11,9 @@ import { createPost, deletePost, getPostById, listAllPosts, updatePost } from ".
 import { deleteTranslation, getTranslation, upsertTranslation } from "../services/translations.ts";
 import type { ObjectStorage } from "../storage.ts";
 import type { GitHub } from "../auth/github.ts";
+import type { StatusDeps } from "../services/status.ts";
 import { adminCommentRoutes } from "./admin-comments.ts";
+import { adminSystemRoutes } from "./admin-system.ts";
 import { adminTagRoutes } from "./admin-tags.ts";
 import { imageRoutes, mediaFolderRoutes } from "./images.ts";
 import { type TranslationDeps, translateRoutes } from "./translate.ts";
@@ -27,6 +29,7 @@ export function adminRoutes(
   storage: ObjectStorage | null,
   github: GitHub | null,
   translation: TranslationDeps,
+  status: Omit<StatusDeps, "db">,
 ) {
   // 写操作按用户限流：正常编辑远远用不到，主要防脚本失控或 session 泄露后的批量破坏
   const limitWrites = rateLimit(limiter, rules.adminWrite, (c) => `user:${sessionOf(c).user.id}`);
@@ -91,5 +94,6 @@ export function adminRoutes(
     .route("/tags", adminTagRoutes(db, revalidate))
     .route("/images", imageRoutes(db, storage))
     .route("/media-folders", mediaFolderRoutes(db))
-    .route("/", adminCommentRoutes(db, github));
+    .route("/", adminCommentRoutes(db, github))
+    .route("/", adminSystemRoutes(db, status));
 }

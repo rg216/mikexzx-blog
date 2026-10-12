@@ -5,6 +5,7 @@ import {
   type Locale,
   splitMarkdownForTranslation,
   type StructureCheckResult,
+  type TranslationModelId,
   type TranslationUnavailableReason,
   type TranslationUsage,
 } from "@blog/shared";
@@ -147,6 +148,11 @@ export type GenerationSource = {
   title: string;
   contentMd: string;
   sourceHash: string;
+  /**
+   * 用哪个模型（开始生成时从翻译配置里取，标题和每一段都带同一个：提示缓存按模型分开）。
+   * 没有时由 API 用设置里的模型
+   */
+  model?: TranslationModelId | undefined;
 };
 
 export type GenerationResult = {
@@ -222,7 +228,7 @@ export async function runTranslationGeneration(api: GenerationApi, source: Gener
     checkAborted();
     if (!partial.title) {
       onProgress?.({ ...step, title: null, liveText: completedText(), completedText: completedText() });
-      const result = await api.generateTranslationTitle(source.postId, source.locale, source.sourceHash, signal);
+      const result = await api.generateTranslationTitle(source.postId, source.locale, source.sourceHash, signal, source.model);
       checkAborted();
       const title = cleanTitle(result.title);
       if (title === "") throw new SegmentRejectedError("模型返回了空标题");
@@ -239,6 +245,7 @@ export async function runTranslationGeneration(api: GenerationApi, source: Gener
       const done = await api.streamTranslationSegment(source.postId, source.locale, {
         index,
         sourceHash: source.sourceHash,
+        model: source.model,
         signal,
         onPing: () => {
           // 已经开始输出之后的心跳（输出中途停顿）不改变显示

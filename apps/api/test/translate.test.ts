@@ -6,6 +6,7 @@ import {
   tagTranslateResultSchema,
   translationStreamEventSchema,
   translationTitleResultSchema,
+  DEFAULT_TRANSLATION_MODEL,
 } from "@blog/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -13,12 +14,13 @@ import {
   type TagNameJob,
   type TagNameOutcome,
   type TitleOutcome,
-  TRANSLATION_MODEL,
   type TranslationJob,
   type TranslationSegment,
   type Translator,
 } from "../src/lib/translator.ts";
 import { setupTestApp } from "./helpers.ts";
+
+const TRANSLATION_MODEL = DEFAULT_TRANSLATION_MODEL;
 
 // ---------- 假的翻译器：记录调用，按测试的安排返回结果或抛出 SDK 的错误 ----------
 
@@ -39,24 +41,26 @@ const defaultSegment: SegmentImpl = async function* (_job, segment) {
 type TagImpl = (job: TagNameJob) => Promise<TagNameOutcome>;
 const defaultTag: TagImpl = async () => ({ text: '{"en":" Front end ","ja":"フロントエンド"}', ...ok });
 
-const calls: { part: "title" | "body"; job: TranslationJob; segment?: TranslationSegment; signal: AbortSignal }[] = [];
+const calls: { part: "title" | "body"; job: TranslationJob; segment?: TranslationSegment; signal: AbortSignal; model: string }[] = [];
 const tagCalls: TagNameJob[] = [];
+const tagModels: string[] = [];
 let titleImpl = defaultTitle;
 let segmentImpl = defaultSegment;
 let tagImpl = defaultTag;
 
 const translator: Translator = {
-  model: TRANSLATION_MODEL,
-  translateTitle(job, { signal }) {
-    calls.push({ part: "title", job, signal });
+  verifyModel: async () => {},
+  translateTitle(job, { signal, model }) {
+    calls.push({ part: "title", job, signal, model });
     return titleImpl(job, signal);
   },
-  streamSegment(job, segment, { signal }) {
-    calls.push({ part: "body", job, segment, signal });
+  streamSegment(job, segment, { signal, model }) {
+    calls.push({ part: "body", job, segment, signal, model });
     return segmentImpl(job, segment, signal);
   },
-  translateTagName(job) {
+  translateTagName(job, { model }) {
     tagCalls.push(job);
+    tagModels.push(model);
     return tagImpl(job);
   },
 };
@@ -69,6 +73,7 @@ const { request, requestRaw, createPost, createTag } = setupTestApp({ translator
 afterEach(() => {
   calls.length = 0;
   tagCalls.length = 0;
+  tagModels.length = 0;
   titleImpl = defaultTitle;
   segmentImpl = defaultSegment;
   tagImpl = defaultTag;
@@ -100,7 +105,7 @@ describe("GET /admin/translation/config", () => {
   it("tells the editor that translation is available and which model it uses", async () => {
     const res = await request("GET", "/admin/translation/config");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ available: true, model: "claude-sonnet-5-5" });
+    expect(res.body).toEqual({ available: true, model: "claude-sonnet-5-5", tagModel: "claude-sonnet-5-5" });
   });
 
   it("requires a session", async () => {
@@ -139,7 +144,8 @@ describe("POST /admin/posts/:id/translations/:locale/generate — checks before 
     ["a negative index", "ja", { part: "body", index: -1, sourceHash: "0".repeat(64) }],
     ["a fractional index", "ja", { part: "body", index: 1.5, sourceHash: "0".repeat(64) }],
     ["a missing source hash", "ja", { part: "title" }],
-    ["unknown fields", "ja", { part: "title", sourceHash: "0".repeat(64), model: "claude-opus-5-5" }],
+    ["unknown fields", "ja", { part: "title", sourceHash: "0".repeat(64), effort: "max" }],
+    ["a model that is not on the list", "ja", { part: "title", sourceHash: "0".repeat(64), model: "claude-sonnet-5" }],
   ])("rejects %s with 400", async (_name, locale, body) => {
     const { id } = await postWithHash({ slug: "a" });
     const res = await generate(id, locale, body);
@@ -166,6 +172,31 @@ describe("POST /admin/posts/:id/translations/:locale/generate — checks before 
     const empty = await postWithHash({ slug: "b", contentMd: "" });
     expect((await generate(empty.id, "ja", { part: "body", index: 0, sourceHash: empty.hash })).status).toBe(400);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("which model is called", () => {
+  const setModels = (body: unknown) => request("PATCH", "/admin/settings", { body });
+
+  it("uses the models chosen in settings, and reports them in config", async () => {
+    expect((await setModels({ translationModel: "claude-opus-5-5", tagTranslationModel: "claude-haiku-5-5" })).status).toBe(200);
+    expect((await request("GET", "/admin/translation/config")).body).toEqual({ available: true, model: "claude-opus-5-5", tagModel: "claude-haiku-5-5" });
+
+    const { id, hash } = await postWithHash({ slug: "a", contentMd: "一段。" });
+    expect((await generate(id, "ja", { part: "title", sourceHash: hash })).status).toBe(200);
+    await readEvents(await generateRaw(id, "ja", { part: "body", index: 0, sourceHash: hash }));
+    expect(calls.map((call) => call.model)).toEqual(["claude-opus-5-5", "claude-opus-5-5"]);
+
+    expect((await request("POST", "/admin/tags/translate", { body: { name: "前端" } })).status).toBe(200);
+    expect(tagModels).toEqual(["claude-haiku-5-5"]);
+  });
+
+  it("keeps the model the editor started with, even if settings change mid-generation", async () => {
+    const { id, hash } = await postWithHash({ slug: "a", contentMd: "一段。" });
+    expect((await generate(id, "ja", { part: "title", sourceHash: hash, model: "claude-sonnet-5-5" })).status).toBe(200);
+    await setModels({ translationModel: "claude-fable-5-1" });
+    await readEvents(await generateRaw(id, "ja", { part: "body", index: 0, sourceHash: hash, model: "claude-sonnet-5-5" }));
+    expect(calls.map((call) => call.model)).toEqual(["claude-sonnet-5-5", "claude-sonnet-5-5"]);
   });
 });
 

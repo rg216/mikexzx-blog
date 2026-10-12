@@ -1,5 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { type ApiErrorCode, type Locale, localeInfo, tagNameSchema, type TagTranslations, type TranslationUsage } from "@blog/shared";
+import {
+  type ApiErrorCode,
+  type Locale,
+  localeInfo,
+  tagNameSchema,
+  type TagTranslations,
+  type TranslationModelId,
+  translationModelInfo,
+  type TranslationUsage,
+} from "@blog/shared";
 import { z } from "zod";
 
 /*
@@ -16,11 +25,9 @@ import { z } from "zod";
  * 这个模块只管"怎么调 API"；路由经 Translator 接口使用它，测试注入假实现（绝不在测试里发真请求）。
  */
 
-/** 翻译用的模型（作者指定 Claude Sonnet 5.5）。服务端回退时实际服务的模型见各结果的 model */
-export const TRANSLATION_MODEL = "claude-sonnet-5-5";
-
 /**
- * 服务端回退（beta）：Sonnet 5.5 的安全分类器拒答时（cyber、frontier_llm 类别），API 在同一次调用里换模型重跑。
+ * 服务端回退（beta）：模型的安全分类器拒答时（cyber、frontier_llm 类别），API 在同一次调用里换模型重跑。
+ * 只发给有回退的模型（translationModels 的 serverFallback；Haiku 5.5 没有）。
  * "default" 形式由 Anthropic 按拒答类别选择回退模型，不必自己维护模型名；它对应的 beta 头必须是这一个
  * （数组形式用的是 -2026-06-01，混用会 400）。流式时已输出的部分不作废，回退模型接着往下写。
  */
@@ -39,7 +46,7 @@ export const SEGMENT_MAX_TOKENS = 64_000;
 export const TITLE_MAX_TOKENS = 4_000;
 
 /**
- * 思考深度：翻译准确优先，用 high（Sonnet 5.5 的默认值，这里显式写出）。
+ * 思考深度：翻译准确优先，用 high。各模型的默认值不同（Sonnet、Fable 是 high，Opus、Haiku 是 medium），所以显式写出。
  * 标题和正文必须用同一个值：改变 effort 会让提示缓存失效。
  */
 const EFFORT = "high";
@@ -99,13 +106,18 @@ export type TagNameJob = {
 /** text 是模型输出的 JSON（按 tagNameOutputSchema 约束），由 parseTagNameOutput 解析 */
 export type TagNameOutcome = TranslationStop & { text: string };
 
+/** 每次调用都指定模型（设置里选的，或编辑器开始生成时定下的） */
+export type CallOptions = { signal: AbortSignal; model: TranslationModelId };
+
 export type Translator = {
-  /** 请求的模型，后台显示用 */
-  readonly model: string;
-  translateTitle(job: TranslationJob, options: { signal: AbortSignal }): Promise<TitleOutcome>;
-  translateTagName(job: TagNameJob, options: { signal: AbortSignal }): Promise<TagNameOutcome>;
+  translateTitle(job: TranslationJob, options: CallOptions): Promise<TitleOutcome>;
+  translateTagName(job: TagNameJob, options: CallOptions): Promise<TagNameOutcome>;
   /** signal 中止时停止上游请求（不再计费），迭代以错误结束 */
-  streamSegment(job: TranslationJob, segment: TranslationSegment, options: { signal: AbortSignal }): AsyncIterable<SegmentEvent>;
+  streamSegment(job: TranslationJob, segment: TranslationSegment, options: CallOptions): AsyncIterable<SegmentEvent>;
+  /**
+   * 状态页用：确认密钥有效、这个模型对这个账号可用（GET /v1/models/{id}，不花钱）。失败时抛出 SDK 的错误（用 classifyTranslatorError 分类）
+   */
+  verifyModel(model: TranslationModelId, options: { signal: AbortSignal }): Promise<void>;
 };
 
 // ---------- 提示词与请求参数（纯函数） ----------
@@ -160,13 +172,17 @@ export function sourceDocument(job: TranslationJob): string {
 // 标题用 messages.create，正文用 messages.stream（它自己加上 stream: true），参数是同一种
 type MessageRequest = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 
-function baseRequest(job: TranslationJob, task: string, maxTokens: number) {
+/** 有服务端回退的模型才带回退参数（没有的模型带 "default" 也不起作用，带回退列表还会 400） */
+function fallbackParams(model: TranslationModelId) {
+  return translationModelInfo(model).serverFallback ? { betas: [SERVER_SIDE_FALLBACK_BETA], fallbacks: "default" as const } : {};
+}
+
+function baseRequest(model: TranslationModelId, job: TranslationJob, task: string, maxTokens: number) {
   return {
-    model: TRANSLATION_MODEL,
+    model,
     max_tokens: maxTokens,
-    betas: [SERVER_SIDE_FALLBACK_BETA],
-    fallbacks: "default",
-    // Sonnet 5.5 的思考只能是自适应（disabled、budget_tokens 都会 400）；不设 temperature 等采样参数（非默认值会 400）
+    ...fallbackParams(model),
+    // 自适应思考（可选的几个模型都不接受 budget_tokens，Opus / Fable 也不能关掉思考）；不设 temperature 等采样参数（非默认值会 400）
     thinking: { type: "adaptive" },
     output_config: { effort: EFFORT },
     system: translationSystemPrompt(job.sourceLocale, job.targetLocale),
@@ -183,12 +199,12 @@ function baseRequest(job: TranslationJob, task: string, maxTokens: number) {
   } satisfies MessageRequest;
 }
 
-export function buildTitleRequest(job: TranslationJob): MessageRequest {
+export function buildTitleRequest(model: TranslationModelId, job: TranslationJob): MessageRequest {
   const task = `Translate the article title (inside <source_title>) into ${languageName(job.targetLocale)}. Output only the translated title, on a single line.`;
-  return baseRequest(job, task, TITLE_MAX_TOKENS);
+  return baseRequest(model, job, task, TITLE_MAX_TOKENS);
 }
 
-export function buildSegmentRequest(job: TranslationJob, segment: TranslationSegment): MessageRequest {
+export function buildSegmentRequest(model: TranslationModelId, job: TranslationJob, segment: TranslationSegment): MessageRequest {
   const task = [
     `Translate part ${segment.index + 1} of ${segment.total} of the article body into ${languageName(job.targetLocale)}.`,
     "The part is reproduced exactly below, between the <part> tags. Output only its translation: nothing before or after it, no surrounding tags, and no other part of the article.",
@@ -197,7 +213,7 @@ export function buildSegmentRequest(job: TranslationJob, segment: TranslationSeg
     segment.text,
     "</part>",
   ].join("\n");
-  return baseRequest(job, task, SEGMENT_MAX_TOKENS);
+  return baseRequest(model, job, task, SEGMENT_MAX_TOKENS);
 }
 
 // ---------- 标签名（纯函数） ----------
@@ -240,7 +256,7 @@ export function tagNameOutputSchema(targetLocales: readonly Locale[]) {
 /** 已有标签作为参考，最多这么多个（再多只是增加输入 token） */
 const GLOSSARY_LIMIT = 40;
 
-export function buildTagNameRequest(job: TagNameJob): MessageRequest {
+export function buildTagNameRequest(model: TranslationModelId, job: TagNameJob): MessageRequest {
   const examples = job.glossary
     .slice(0, GLOSSARY_LIMIT)
     .map((tag) => `- ${tag.name}: ${job.targetLocales.map((locale) => `${locale}=${tag.translations[locale] ?? "?"}`).join(", ")}`);
@@ -250,7 +266,7 @@ export function buildTagNameRequest(job: TagNameJob): MessageRequest {
     ...(job.slug ? [`Its URL slug (often an English hint of the meaning): ${job.slug}`] : []),
   ].join("\n");
   return {
-    model: TRANSLATION_MODEL,
+    model,
     max_tokens: TAG_NAME_MAX_TOKENS,
     // 不用服务端回退：文档没有确认回退模型支持结构化输出，而一个标签名几乎不会触发拒答
     thinking: { type: "adaptive" },
@@ -285,7 +301,7 @@ const BILLED_ATTEMPTS: ReadonlySet<string> = new Set(["message", "fallback_messa
 /**
  * 一次调用的 token 用量。SDK 的缓存字段可能是 null（没有用到缓存），记为 0。
  *
- * 服务端回退时，顶层的 usage 只是"最后交出结果的那次尝试"的用量；Sonnet 5.5 在流中途拒答之前已经输出的部分
+ * 服务端回退时，顶层的 usage 只是"最后交出结果的那次尝试"的用量；模型在流中途拒答之前已经输出的部分
  * 照常计费，却只出现在 usage.iterations 里（每次尝试一条，是计费的依据）。所以有 iterations 时按它逐项相加，
  * 日志和编辑器里显示的用量才等于实际计费。compaction 之类的条目不计入顶层用量，这里也不加（翻译用不到它们）。
  */
@@ -450,20 +466,22 @@ export function createAnthropicTranslator(apiKey: string, options: AnthropicTran
   });
 
   return {
-    model: TRANSLATION_MODEL,
-
-    async translateTitle(job, { signal }) {
-      const message = await client.beta.messages.create(buildTitleRequest(job), { signal });
+    async translateTitle(job, { signal, model }) {
+      const message = await client.beta.messages.create(buildTitleRequest(model, job), { signal });
       return { text: textOf(message), ...stopOf(message) };
     },
 
-    async translateTagName(job, { signal }) {
-      const message = await client.beta.messages.create(buildTagNameRequest(job), { signal });
+    async translateTagName(job, { signal, model }) {
+      const message = await client.beta.messages.create(buildTagNameRequest(model, job), { signal });
       return { text: textOf(message), ...stopOf(message) };
     },
 
-    async *streamSegment(job, segment, { signal }) {
-      const stream = client.beta.messages.stream(buildSegmentRequest(job, segment), { signal });
+    async verifyModel(model, { signal }) {
+      await client.models.retrieve(model, {}, { signal });
+    },
+
+    async *streamSegment(job, segment, { signal, model }) {
+      const stream = client.beta.messages.stream(buildSegmentRequest(model, job, segment), { signal });
       // 提前结束迭代（break / return）时 SDK 的迭代器会中止请求；这里再保险一次
       try {
         for await (const event of stream) {

@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { createRateLimiter, rules } from "../src/lib/rate-limit.ts";
-import { adminPostSchema } from "@blog/shared";
-import { TRANSLATION_MODEL, type Translator } from "../src/lib/translator.ts";
+import { adminPostSchema, DEFAULT_TRANSLATION_MODEL } from "@blog/shared";
+import { type Translator } from "../src/lib/translator.ts";
 import type { RedisProvider } from "../src/redis.ts";
 import { setupTestApp } from "./helpers.ts";
+
+const TRANSLATION_MODEL = DEFAULT_TRANSLATION_MODEL;
 
 /*
  * 大模型翻译的限流是"每次调用都花钱"的唯一额度上限，所以它不像其他限流那样在 Redis 故障时放行：
@@ -15,7 +17,7 @@ import { setupTestApp } from "./helpers.ts";
 const usage = { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
 const calls: string[] = [];
 const translator: Translator = {
-  model: TRANSLATION_MODEL,
+  verifyModel: async () => {},
   async translateTitle() {
     calls.push("title");
     return { text: "Title", stopReason: "end_turn", refusalCategory: null, model: TRANSLATION_MODEL, usage, fallback: false };
@@ -111,6 +113,7 @@ describe("LLM translation while Redis is down", () => {
     expect((await app.request("GET", "/admin/translation/config")).body).toEqual({
       available: false,
       model: TRANSLATION_MODEL,
+      tagModel: TRANSLATION_MODEL,
       reason: "rate_limiter_unavailable",
     });
   });
@@ -139,7 +142,7 @@ describe("LLM translation without Redis configured", () => {
 
   it("stays disabled even though a translator (ANTHROPIC_API_KEY) is configured", async () => {
     calls.length = 0;
-    expect((await app.request("GET", "/admin/translation/config")).body).toEqual({ available: false, model: TRANSLATION_MODEL, reason: "not_configured" });
+    expect((await app.request("GET", "/admin/translation/config")).body).toEqual({ available: false, model: TRANSLATION_MODEL, tagModel: TRANSLATION_MODEL, reason: "not_configured" });
     const { id } = await app.createPost({ slug: "a" });
     const res = await app.request("POST", `/admin/posts/${id}/translations/en/generate`, { body: { part: "title", sourceHash: "0".repeat(64) } });
     expect(res.status).toBe(503);

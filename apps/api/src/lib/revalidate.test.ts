@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRevalidator, tagsForChange, tagsForPublishedPosts, tagsForTranslationChange } from "./revalidate.ts";
+import { createRevalidateProbe, createRevalidator, tagsForChange, tagsForPublishedPosts, tagsForTranslationChange } from "./revalidate.ts";
 
 describe("tagsForChange", () => {
   const draft = (slug: string) => ({ slug, status: "draft" as const });
@@ -106,5 +106,42 @@ describe("createRevalidator", () => {
     await createRevalidator({ url: "https://x", secret: "s", fetchImpl: hang, timeoutMs: 50 })(["posts"]);
     expect(Date.now() - started).toBeLessThan(1000);
     warn.mockRestore();
+  });
+});
+
+describe("createRevalidateProbe", () => {
+  const probeWith = (respond: () => Promise<Response>) => {
+    const sent: { url: string; init: RequestInit | undefined }[] = [];
+    const probe = createRevalidateProbe({
+      url: "https://blog.test/hooks/revalidate",
+      secret: "s".repeat(32),
+      fetchImpl: async (input, init) => {
+        sent.push({ url: String(input), init });
+        return respond();
+      },
+    });
+    return { probe, sent };
+  };
+
+  it("sends an empty tag list with the shared secret and reports ok when the frontend accepts it", async () => {
+    const { probe, sent } = probeWith(async () => Response.json({ revalidated: [] }));
+    expect(await probe()).toEqual({ state: "ok", summary: "前端接受通知，两边的 REVALIDATE_SECRET 一致" });
+    expect(sent[0]?.url).toBe("https://blog.test/hooks/revalidate");
+    expect(sent[0]?.init?.body).toBe(JSON.stringify({ tags: [] }));
+    expect(new Headers(sent[0]?.init?.headers).get("authorization")).toBe(`Bearer ${"s".repeat(32)}`);
+  });
+
+  it.each([
+    [401, "前端拒绝了通知：两个项目的 REVALIDATE_SECRET 不一致"],
+    [503, "前端没有设置 REVALIDATE_SECRET"],
+    [400, "前端返回了 400"],
+  ])("explains a %i from the frontend", async (status, summary) => {
+    const { probe } = probeWith(async () => new Response(null, { status }));
+    expect(await probe()).toEqual({ state: "error", summary });
+  });
+
+  it("reports an unreachable frontend", async () => {
+    const { probe } = probeWith(() => Promise.reject(new TypeError("fetch failed")));
+    expect(await probe()).toEqual({ state: "error", summary: "连不上前端的 /hooks/revalidate" });
   });
 });

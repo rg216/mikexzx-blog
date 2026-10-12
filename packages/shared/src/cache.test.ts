@@ -28,7 +28,11 @@ describe("revalidateRequestSchema", () => {
     expect(revalidateRequestSchema.safeParse({ tags: Array.from({ length: 51 }, (_, i) => `t${i}`) }).success).toBe(false);
   });
 
-  it.each([{}, { tags: [] }, { tags: ["x".repeat(257)] }, { tags: ["posts"], extra: 1 }])("rejects %j", (body) => {
+  it("accepts an empty list (the API status page uses it to check the shared secret)", () => {
+    expect(revalidateRequestSchema.parse({ tags: [] })).toEqual({ tags: [] });
+  });
+
+  it.each([{}, { tags: ["x".repeat(257)] }, { tags: ["posts"], extra: 1 }])("rejects %j", (body) => {
     expect(revalidateRequestSchema.safeParse(body).success).toBe(false);
   });
 });

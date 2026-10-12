@@ -6,7 +6,7 @@ import { createApp } from "./create-app.ts";
 import { createDb } from "./db/client.ts";
 import { createGitHub } from "./auth/github.ts";
 import { githubConfigFrom, loadEnv, storageConfigFrom } from "./env.ts";
-import { createRevalidator } from "./lib/revalidate.ts";
+import { createRevalidateProbe, createRevalidator } from "./lib/revalidate.ts";
 import { createAnthropicTranslator } from "./lib/translator.ts";
 import { createRedisProvider } from "./redis.ts";
 import { createObjectStorage } from "./storage.ts";
@@ -28,7 +28,10 @@ const app = createApp({
   db,
   auth: createAuthConfig({ webOrigin: env.WEB_ORIGIN, setupToken: env.ADMIN_SETUP_TOKEN }),
   ...(env.REVALIDATE_SECRET
-    ? { revalidate: createRevalidator({ url: `${env.WEB_ORIGIN}/hooks/revalidate`, secret: env.REVALIDATE_SECRET }) }
+    ? {
+        revalidate: createRevalidator({ url: `${env.WEB_ORIGIN}/hooks/revalidate`, secret: env.REVALIDATE_SECRET }),
+        revalidateProbe: createRevalidateProbe({ url: `${env.WEB_ORIGIN}/hooks/revalidate`, secret: env.REVALIDATE_SECRET }),
+      }
     : {}),
   redis: env.REDIS_URL ? createRedisProvider(env.REDIS_URL) : null,
   storage: storage ? createObjectStorage(storage) : null,

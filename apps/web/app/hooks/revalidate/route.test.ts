@@ -40,7 +40,14 @@ describe("POST /hooks/revalidate", () => {
     expect(revalidateTag).not.toHaveBeenCalled();
   });
 
-  it.each([["{not json"], [{ tags: [] }], [{ tag: "posts:zh" }], [{ tags: Array.from({ length: 51 }, (_, i) => `post:p${i}:zh`) }]])("rejects a malformed body %j", async (body) => {
+  it("accepts an empty tag list without revalidating anything (the API status page checks the shared secret this way)", async () => {
+    const res = await call({ tags: [] }, `Bearer ${SECRET}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ revalidated: [] });
+    expect(revalidateTag).not.toHaveBeenCalled();
+  });
+
+  it.each([["{not json"], [{ tag: "posts:zh" }], [{ tags: Array.from({ length: 51 }, (_, i) => `post:p${i}:zh`) }]])("rejects a malformed body %j", async (body) => {
     expect((await call(body, `Bearer ${SECRET}`)).status).toBe(400);
     expect(revalidateTag).not.toHaveBeenCalled();
   });

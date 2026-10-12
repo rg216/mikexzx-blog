@@ -1,7 +1,7 @@
 import { defaultSourceLocale, type Locale } from "@blog/shared";
 import { sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { bigint, boolean, check, customType, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, customType, date, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 // 列名由 casing: "snake_case" 自动转换：contentMd → content_md。
 
@@ -381,3 +381,32 @@ export const comments = pgTable(
   ],
 );
 
+
+/*
+ * 运行时设置（后台"设置"页里改的，如翻译用哪个模型）：一个键一行，值是 JSON。
+ * 只放不涉密、改了要马上生效的东西；密钥一律在环境变量里（数据库会进备份、导出，后台被攻破时也能读到）。
+ * 值的格式由 @blog/shared 的 siteSettingsSchema 逐键校验：读到认不出、不合法的值时用默认值，不让一行坏数据拖垮功能。
+ */
+export const settings = pgTable("settings", {
+  key: text().primaryKey(),
+  value: jsonb().notNull(),
+  updatedAt: timestamptz()
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+/*
+ * 定时任务最近一次运行的结果（每个任务一行，覆盖写），状态页据此显示"上次什么时候跑的、成没成功"。
+ * 只留最近一次：历史在平台的日志里；这里要回答的只是"现在正常吗"。
+ */
+export const jobRuns = pgTable("job_runs", {
+  name: text().primaryKey(),
+  startedAt: timestamptz().notNull(),
+  finishedAt: timestamptz().notNull(),
+  ok: boolean().notNull(),
+  // 成功时是任务的结果摘要（写入了几天的阅读数、删了几张图），失败时是错误说明
+  detail: jsonb().notNull(),
+  // 最近一次成功的时间：失败时保留上一次成功的时间，状态页能看出"已经多久没成功了"
+  lastSuccessAt: timestamptz(),
+});

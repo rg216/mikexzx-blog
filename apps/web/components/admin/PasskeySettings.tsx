@@ -22,7 +22,7 @@ const describe = (error: unknown) => (error instanceof AdminApiError ? error.mes
 
 type ListState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; passkeys: Passkey[] };
 
-/** 设置页：管理 Passkey（添加 / 重命名 / 删除）和登录会话（登出所有设备）。 */
+/** 设置页里的 Passkey（添加 / 重命名 / 删除）和登录会话（登出所有设备）两节。 */
 export function PasskeySettings() {
   const session = useSession();
   const [list, setList] = useState<ListState>({ kind: "loading" });
@@ -121,13 +121,12 @@ export function PasskeySettings() {
   }
 
   return (
-    <div className={styles.page}>
-      <h1 className={styles.title}>设置</h1>
+    <>
       <p role="status" className="visually-hidden">
         {announcement}
       </p>
 
-      <section className={styles.section} aria-labelledby="passkeys-heading">
+      <section aria-labelledby="passkeys-heading">
         <h2 id="passkeys-heading" className={styles.sectionTitle}>
           Passkey
         </h2>
@@ -219,7 +218,7 @@ export function PasskeySettings() {
         {addError && <Banner className={styles.addError}>{addError}</Banner>}
       </section>
 
-      <section className={styles.section} aria-labelledby="session-heading">
+      <section aria-labelledby="session-heading">
         <h2 id="session-heading" className={styles.sectionTitle}>
           登录会话
         </h2>
@@ -257,6 +256,6 @@ export function PasskeySettings() {
       >
         包括当前这台设备在内，所有已登录的浏览器都需要重新用 Passkey 登录。
       </ConfirmDialog>
-    </div>
+    </>
   );
 }

@@ -11,6 +11,7 @@ import { createDb } from "../src/db/client.ts";
 import { users } from "../src/db/schema.ts";
 import { createRedisProvider, type RedisProvider } from "../src/redis.ts";
 import { createObjectStorage, type ObjectStorage } from "../src/storage.ts";
+import type { RevalidateProbeResult } from "../src/lib/revalidate.ts";
 import type { Translator } from "../src/lib/translator.ts";
 
 export const WEB_ORIGIN = "https://blog.test";
@@ -227,6 +228,8 @@ export function setupTestApp({
   translator = null,
   redisProvider,
   translationHeartbeatMs,
+  revalidateProbe = null,
+  statusTimeoutMs,
 }: {
   withRedis?: boolean;
   withStorage?: boolean;
@@ -234,6 +237,10 @@ export function setupTestApp({
   redisProvider?: RedisProvider;
   /** 翻译流的心跳间隔（毫秒），测试心跳时调短 */
   translationHeartbeatMs?: number;
+  /** 状态页的"缓存失效通知"检查；不传表示没有配置 REVALIDATE_SECRET */
+  revalidateProbe?: (() => Promise<RevalidateProbeResult>) | null;
+  /** 状态页每项检查的超时（毫秒） */
+  statusTimeoutMs?: number;
 } = {}) {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) throw new Error("TEST_DATABASE_URL 未设置");
@@ -257,6 +264,8 @@ export function setupTestApp({
     github: fakeGitHub.github,
     translator,
     ...(translationHeartbeatMs === undefined ? {} : { translationHeartbeatMs }),
+    revalidateProbe,
+    ...(statusTimeoutMs === undefined ? {} : { statusTimeoutMs }),
     cronSecret: CRON_SECRET,
   });
 
@@ -267,7 +276,7 @@ export function setupTestApp({
   beforeEach(async () => {
     // RESTART IDENTITY：自增 id 也从 1 开始，测试里的 id 可预测
     await db.execute(
-      sql`TRUNCATE posts, tags, post_tags, images, media_folders, users, passkeys, sessions, auth_challenges, comments, commenters, commenter_sessions, oauth_states RESTART IDENTITY CASCADE`,
+      sql`TRUNCATE posts, tags, post_tags, images, media_folders, users, passkeys, sessions, auth_challenges, comments, commenters, commenter_sessions, oauth_states, settings, job_runs RESTART IDENTITY CASCADE`,
     );
     jar.clear();
     adminCookie = null;

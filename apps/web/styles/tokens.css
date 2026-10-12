@@ -273,6 +273,9 @@
   --color-success-text: #1e7a34; /* 淡绿底（叠在白底上）4.78:1 */
   --color-success-fill: rgb(52 199 89 / 0.15);
 
+  /* 警告（状态页"有迁移没执行"之类）：iOS 的橙色 #FF9500 在浅色底上太浅，用加深的棕橙；白底 6.4:1，#f2f2f7 底 5.8:1 */
+  --color-warning-text: #8a5100;
+
   /*
    * 输入框：iOS 的"灰底无边框"输入框，边界对比度达不到 WCAG 1.4.11（非文字 ≥ 3:1），
    * 改用 apple.com 表单的做法：白底 + 中灰描边。
@@ -310,6 +313,7 @@
     --color-destructive-fill: rgb(255 69 58 / 0.2); /* #ff6961 在此底上 6.17:1（叠在黑底）/ 4.75:1（叠在 #1c1c1e） */
     --color-success-text: #30d158; /* 淡绿底（叠在黑底上）7.70:1，叠在 #1c1c1e 上 5.67:1 */
     --color-success-fill: rgb(48 209 88 / 0.2);
+    --color-warning-text: #ffb340; /* 黑底 11.8:1，#1c1c1e 底 9.6:1 */
     --color-field-background: #1c1c1e;
     --color-field-border: #7c7c80; /* #1c1c1e 底 4.09:1，黑底 5.05:1 */
     --color-segment-selected: #636366; /* 白字 5.99:1 */

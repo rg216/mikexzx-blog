@@ -28,7 +28,13 @@ import {
   type PostUpdateInput,
   type TranslationConfig,
   translationConfigSchema,
+  type SiteSettings,
+  siteSettingsSchema,
+  type SiteSettingsUpdate,
+  type SystemStatus,
+  systemStatusSchema,
   type TranslationGenerateInput,
+  type TranslationModelId,
   type TranslationInput,
   type TranslationStreamEvent,
   translationStreamEventSchema,
@@ -158,6 +164,8 @@ export type StreamSegmentOptions = {
   index: number;
   /** 编辑器加载文章时拿到的原文指纹；原文之后改过的话 API 返回 409 */
   sourceHash: string;
+  /** 开始生成时定下的模型（整篇同一个）；不传时 API 用设置里的 */
+  model?: TranslationModelId | undefined;
   signal?: AbortSignal;
   /** 每收到一小段译文调用一次（实时显示） */
   onDelta?: (text: string) => void;
@@ -275,8 +283,8 @@ export function createAdminApi(options: JsonClientOptions = {}) {
     },
 
     /** 生成标题：一次普通的 JSON 请求（标题很短，不流式） */
-    async generateTranslationTitle(postId: number, locale: Locale, sourceHash: string, signal?: AbortSignal): Promise<TranslationTitleResult> {
-      const input: TranslationGenerateInput = { part: "title", sourceHash };
+    async generateTranslationTitle(postId: number, locale: Locale, sourceHash: string, signal?: AbortSignal, model?: TranslationModelId): Promise<TranslationTitleResult> {
+      const input: TranslationGenerateInput = { part: "title", sourceHash, ...(model ? { model } : {}) };
       const res = await request("POST", `/posts/${postId}/translations/${locale}/generate`, input, { signal });
       return parseJson(res, translationTitleResultSchema);
     },
@@ -289,8 +297,8 @@ export function createAdminApi(options: JsonClientOptions = {}) {
      *   - signal 中止：原样抛出 AbortError
      * 流开始之前的错误（401、404、409、429、503…）是普通的 JSON 错误响应，和其他接口一样处理。
      */
-    async streamTranslationSegment(postId: number, locale: Locale, { index, sourceHash, signal, onDelta, onPing }: StreamSegmentOptions): Promise<TranslationSegmentResult> {
-      const input: TranslationGenerateInput = { part: "body", index, sourceHash };
+    async streamTranslationSegment(postId: number, locale: Locale, { index, sourceHash, model, signal, onDelta, onPing }: StreamSegmentOptions): Promise<TranslationSegmentResult> {
+      const input: TranslationGenerateInput = { part: "body", index, sourceHash, ...(model ? { model } : {}) };
       const res = await request("POST", `/posts/${postId}/translations/${locale}/generate`, input, { signal, accept: "application/x-ndjson" });
       if (!res.body) throw new AdminApiError(res.status, "bad_response", fallbackMessages.bad_response);
       try {
@@ -421,6 +429,22 @@ export function createAdminApi(options: JsonClientOptions = {}) {
     /** 按 GitHub 用户名加入白名单 */
     async addTrustedCommenter(login: string): Promise<AdminCommenter> {
       return parseJson(await request("POST", "/commenters", { login }), adminCommenterSchema);
+    },
+
+    // ---------- 设置与状态页 ----------
+
+    async getSettings(): Promise<SiteSettings> {
+      return parseJson(await request("GET", "/settings"), siteSettingsSchema);
+    },
+
+    /** 只改给出的键，返回改完的完整设置 */
+    async updateSettings(update: SiteSettingsUpdate): Promise<SiteSettings> {
+      return parseJson(await request("PATCH", "/settings", update), siteSettingsSchema);
+    },
+
+    /** 各项依赖和定时任务的状态（只有状态，不含任何配置值） */
+    async getStatus(): Promise<SystemStatus> {
+      return parseJson(await request("GET", "/status"), systemStatusSchema);
     },
   };
 }

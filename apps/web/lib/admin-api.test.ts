@@ -216,13 +216,14 @@ describe("translation generation", () => {
   const done = { type: "done", text: "Hello, 世界", stopReason: "end_turn", model: "claude-sonnet-5-5", usage };
 
   it("GETs the translation config", async () => {
-    const { api, fetch } = setup(jsonResponse(200, { available: true, model: "claude-sonnet-5-5" }));
-    await expect(api.getTranslationConfig()).resolves.toEqual({ available: true, model: "claude-sonnet-5-5" });
+    const config = { available: true, model: "claude-sonnet-5-5", tagModel: "claude-haiku-5-5" };
+    const { api, fetch } = setup(jsonResponse(200, config));
+    await expect(api.getTranslationConfig()).resolves.toEqual(config);
     expect(fetch.mock.calls[0]?.[0]).toBe("/api/admin/translation/config");
   });
 
   it("GETs an unavailable config with its reason", async () => {
-    const config = { available: false, model: "claude-sonnet-5-5", reason: "rate_limiter_unavailable" };
+    const config = { available: false, model: "claude-sonnet-5-5", tagModel: "claude-sonnet-5-5", reason: "rate_limiter_unavailable" };
     const { api } = setup(jsonResponse(200, config));
     await expect(api.getTranslationConfig()).resolves.toEqual(config);
   });
@@ -242,6 +243,12 @@ describe("translation generation", () => {
     expect(url).toBe("/api/admin/posts/3/translations/ja/generate");
     expect(init?.method).toBe("POST");
     expect(JSON.parse(String(init?.body))).toEqual({ part: "title", sourceHash: hash });
+  });
+
+  it("sends the model the editor started with, when it has one", async () => {
+    const { api, fetch } = setup(jsonResponse(200, { title: "Hello", model: "claude-opus-5-5", usage }));
+    await api.generateTranslationTitle(3, "ja", hash, undefined, "claude-opus-5-5");
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({ part: "title", sourceHash: hash, model: "claude-opus-5-5" });
   });
 
   it("rejects a malformed title result (empty title, missing usage)", async () => {
@@ -384,5 +391,35 @@ describe("parseTranslationStreamLine", () => {
     for (const line of ["{", '{"type":"pong"}', '{"type":"error","code":"teapot","message":"m"}', '{"type":"delta"}']) {
       expect(() => parseTranslationStreamLine(line)).toThrow(AdminApiError);
     }
+  });
+});
+
+describe("settings and status", () => {
+  it("GETs and PATCHes the settings", async () => {
+    const settings = { translationModel: "claude-sonnet-5-5", tagTranslationModel: "claude-haiku-5-5" };
+    const read = setup(jsonResponse(200, settings));
+    await expect(read.api.getSettings()).resolves.toEqual(settings);
+    expect(read.fetch.mock.calls[0]?.[0]).toBe("/api/admin/settings");
+
+    const write = setup(jsonResponse(200, { ...settings, translationModel: "claude-opus-5-5" }));
+    await expect(write.api.updateSettings({ translationModel: "claude-opus-5-5" })).resolves.toMatchObject({ translationModel: "claude-opus-5-5" });
+    const [url, init] = write.fetch.mock.calls[0] ?? [];
+    expect(url).toBe("/api/admin/settings");
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(String(init?.body))).toEqual({ translationModel: "claude-opus-5-5" });
+  });
+
+  it("GETs the status and rejects a response of the wrong shape", async () => {
+    const status = {
+      version: null,
+      checkedAt: "2026-10-12T12:00:00.000Z",
+      checks: [{ id: "database", state: "ok", summary: "连接正常", latencyMs: 3 }],
+      jobs: [{ name: "views-flush", state: "off", lastRunAt: null, lastSuccessAt: null, detail: null }],
+    };
+    const { api, fetch } = setup(jsonResponse(200, status));
+    await expect(api.getStatus()).resolves.toEqual(status);
+    expect(fetch.mock.calls[0]?.[0]).toBe("/api/admin/status");
+    const bad = setup(jsonResponse(200, { ...status, checks: [{ id: "database", state: "great" }] }));
+    expect((await catchError(bad.api.getStatus())).code).toBe("bad_response");
   });
 });
