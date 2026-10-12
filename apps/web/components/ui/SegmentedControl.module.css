@@ -1,4 +1,6 @@
 .control {
+  /* 滑块（绝对定位）以控件为定位基准 */
+  position: relative;
   display: flex;
   min-width: 0;
   padding: 2px;
@@ -23,9 +25,6 @@
   font-size: var(--font-size-subhead);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition:
-    background-color var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 /* radio 本身隐藏，但仍在可访问性树里，也仍能聚焦 */
@@ -38,9 +37,31 @@
 }
 
 .segment:has(.input:checked) {
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 滑块还没测出位置时（服务端渲染、首帧），由选中的那一段自己画底色 */
+.control:not([data-thumb]) .segment:has(.input:checked),
+.thumb {
   background: var(--color-segment-selected);
   box-shadow: var(--shadow-segment-selected);
-  font-weight: var(--font-weight-semibold);
+}
+
+/*
+ * 选中的底块：在 DOM 里排在各段前面，各段是 position: relative，所以文字画在它上面。
+ * 位置、宽高由组件测量后写进行内样式；移动用 transform（合成层上做，不触发重排），宽度不同的段之间切换时宽度一起过渡。
+ * 减弱动态效果时 --duration-spring 为 0，直接跳过去。
+ */
+.thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  pointer-events: none;
+  transition:
+    transform var(--duration-spring) var(--ease-spring),
+    width var(--duration-spring) var(--ease-spring),
+    height var(--duration-spring) var(--ease-spring);
 }
 
 /* 焦点环画在整段上（radio 透明，看不见它自己的焦点环） */
