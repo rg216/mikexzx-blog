@@ -250,4 +250,5 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - [x] 设置与状态页（见"设置与状态页"）：后台选择翻译模型（文章、标签各一个），系统状态页（上线前：Neon 执行迁移 0012，再部署 API）
 - [ ] v5 工程化：Docker 镜像、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）、按顺序部署（先 API、迁移，后前端）
 - [x] v5.5 大模型翻译（见"多语言"）：译文编辑页手动点击生成（Sonnet 5.5，分段流式、提示缓存），作者过目后保存；结构校验，未修改的机器译文记为 machine（上线前：API 项目设 `ANTHROPIC_API_KEY`（还要有 `REDIS_URL`），没设之前生成按钮是禁用的；Anthropic Console 设每月花费上限；首次部署后在函数详情里确认默认 Max Duration 是 300 秒（未核实的假设，见"函数时长与代理"）、长段落经 `/api` 代理不被掐断）
+- [x] 原生 App（独立仓库 `mikexxz-blog-apple`，SwiftUI，iPhone / iPad / Mac）：前台阅读 + 后台管理。后台登录走浏览器授权（见"安全"）。上线前：Neon 执行迁移 0013（`app_auth_codes`），先部署 API（`/auth/app/*`、Bearer、`translation-plan`），再部署前端（`/admin/authorize-app`）
 - [ ] v6 收款：**暂缓，方案待定**。Stripe 不可用：Stripe 日本不允许以个人名义接受捐赠。需要先确定收款场景（打赏 / 付费文章 / 订阅）和收款主体，再选服务；无论用哪家，支付本身交给托管支付页，订单状态、webhook 签名校验、幂等、对账自己实现
