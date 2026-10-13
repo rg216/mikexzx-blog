@@ -289,6 +289,20 @@ export const authChallenges = pgTable("auth_challenges", {
   expiresAt: timestamptz().notNull(),
 });
 
+/**
+ * 原生 App 登录用的一次性授权码（见 @blog/shared 的 app-auth.ts）：管理员在网站上点"允许"时写入，
+ * App 用它和 PKCE 的 code_verifier 换 token 时取出并删除。只存授权码的哈希，几分钟过期
+ */
+export const appAuthCodes = pgTable("app_auth_codes", {
+  id: text().primaryKey(),
+  userId: integer()
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  codeChallenge: text().notNull(),
+  deviceName: text().notNull(),
+  expiresAt: timestamptz().notNull(),
+});
+
 // ---------- 评论（v4c）：评论者用 GitHub 登录，与管理员的 Passkey 体系完全分开 ----------
 
 export const commenterTrust = pgEnum("commenter_trust", ["default", "trusted", "blocked"]);

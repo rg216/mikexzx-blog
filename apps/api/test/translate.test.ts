@@ -5,6 +5,7 @@ import {
   splitMarkdownForTranslation,
   tagTranslateResultSchema,
   translationStreamEventSchema,
+  translationPlanSchema,
   translationTitleResultSchema,
   DEFAULT_TRANSLATION_MODEL,
 } from "@blog/shared";
@@ -172,6 +173,24 @@ describe("POST /admin/posts/:id/translations/:locale/generate — checks before 
     const empty = await postWithHash({ slug: "b", contentMd: "" });
     expect((await generate(empty.id, "ja", { part: "body", index: 0, sourceHash: empty.hash })).status).toBe(400);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("GET /admin/posts/:id/translation-plan", () => {
+  it("reports how many segments the body splits into, for clients that cannot run remark", async () => {
+    const long = Array.from({ length: 3 }, (_, i) => `第 ${i} 段。${"字".repeat(5000)}`).join("\n\n");
+    const { id, hash } = await postWithHash({ slug: "a", contentMd: long });
+    const res = await request("GET", `/admin/posts/${id}/translation-plan`);
+    expect(res.status).toBe(200);
+    expect(translationPlanSchema.parse(res.body)).toEqual({ sourceHash: hash, segments: splitMarkdownForTranslation(long).length });
+    expect(splitMarkdownForTranslation(long).length).toBe(3);
+    const empty = await postWithHash({ slug: "b", contentMd: "" });
+    expect((await request("GET", `/admin/posts/${empty.id}/translation-plan`)).body).toEqual({ sourceHash: empty.hash, segments: 0 });
+  });
+
+  it("answers 404 for a missing post and 401 without a session", async () => {
+    expect((await request("GET", "/admin/posts/999/translation-plan")).status).toBe(404);
+    expect((await request("GET", "/admin/posts/1/translation-plan", { auth: false })).status).toBe(401);
   });
 });
 

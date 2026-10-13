@@ -9,6 +9,7 @@ import {
   tagTranslationLocales,
   type TranslationConfig,
   TRANSLATION_HEARTBEAT_MS,
+  type TranslationPlan,
   translationGenerateInputSchema,
   type TranslationStreamEvent,
   type TranslationTitleResult,
@@ -39,6 +40,7 @@ import { findPost } from "../services/translations.ts";
 /*
  * 大模型翻译的接口（挂在 /admin 下：已登录 + 同源校验 + 写操作限流都由外层负责）。
  *   GET  /translation/config                          → { available, model, tagModel, reason? }：编辑器据此启用按钮、显示模型名或不能用的原因
+ *   GET  /posts/:id/translation-plan                   → { sourceHash, segments }：正文分几段（原生 App 用，见 translationPlanSchema）
  *   POST /posts/:id/translations/:locale/generate     → 标题：JSON；正文的一段：NDJSON 流
  *   POST /tags/translate                              → 标签名的各语言译名：JSON
  * 生成的结果只回给编辑器，不入库：作者过目、保存（PUT 译文）后才对读者可见。
@@ -124,6 +126,10 @@ export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatM
         throw new HttpError(502, "internal_error", error instanceof Error ? error.message : "模型返回的译名无法解析");
       }
       return c.json({ translations, model: fitModelName(stop.model), usage: stop.usage } satisfies TagTranslateResult);
+    })
+    .get("/posts/:id/translation-plan", validate("param", generateParam.pick({ id: true })), async (c) => {
+      const post = await findPost(db, c.req.valid("param").id);
+      return c.json({ sourceHash: sourceHash(post), segments: splitMarkdownForTranslation(post.contentMd).length } satisfies TranslationPlan);
     })
     .post(
       "/posts/:id/translations/:locale/generate",

@@ -1,0 +1,21 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lead {
+  font-size: var(--font-size-body);
+}
+
+.hint {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}

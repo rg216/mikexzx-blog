@@ -664,6 +664,17 @@ export function combineModelNames(models: readonly string[]): string {
   return `${first.slice(0, TRANSLATION_MODEL_MAX_LENGTH - more.length - 1)}…${more}`;
 }
 
+/**
+ * GET /admin/posts/:id/translation-plan：正文按 splitMarkdownForTranslation 切成几段、依据的是哪一版原文。
+ * 网页编辑器自己调用 splitMarkdownForTranslation；原生 App 没有 remark，按这里的段数逐段请求，
+ * 不自己切分——换一个 Markdown 解析器，块的边界可能和 remark 不一样，段号就会悄悄错位。
+ */
+export const translationPlanSchema = z.object({
+  sourceHash: sourceHashSchema,
+  segments: z.int().nonnegative(),
+});
+export type TranslationPlan = z.infer<typeof translationPlanSchema>;
+
 /** 一次生成的 token 用量（SDK 返回 null 的缓存字段由 API 记为 0） */
 export const translationUsageSchema = z.object({
   inputTokens: z.int().nonnegative(),

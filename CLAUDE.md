@@ -159,6 +159,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - 环境变量 `ANTHROPIC_API_KEY`（API 项目，可选），且必须同时有 `REDIS_URL`：缺任何一个时 `GET /admin/translation/config` 返回 `available: false, reason: "not_configured"`、生成接口 503；配置齐了但 Redis 此刻连不上（PING 失败）时返回 `reason: "rate_limiter_unavailable"`（生成会因限流 fail-closed 而 503）。config 的形状是 shared 的 `translationConfigSchema`（按 available 区分的联合类型），编辑器按 reason 显示说明（`unavailableReasonNotes`），按钮禁用，其他功能照常（没有 Redis 就限不了流，`createApp` 不启用翻译并在启动时警告）。测试经 `createApp({ translator })` 注入假实现（同时要 `withRedis`），绝不调用真 API
   - **分段**：正文最长 20 万字，一次输出可能超过输出上限，也远超函数的最长执行时间。所以按 Markdown 顶层块切成 ≤ 6000 字的段（`splitMarkdownForTranslation`，`@blog/shared`，前后端同一个纯函数、段数一致；不切开代码块 / 表格 / 列表 / 引用，单块超长单独成段，段不以标题结尾，`join("")` 等于原文），**浏览器逐段请求**，每段一次 API 调用、一次函数调用。标题单独一次非流式请求（`max_tokens` 4000：思考也计入），正文段流式（`max_tokens` 64000）
   - **提示缓存**：每个请求的前缀都是"稳定的系统提示（只依赖语言对，不含日期、id）+ 整篇原文"，`cache_control` 打在整篇原文那个块上，"翻译第 i 段"的指令在它后面——标题先写缓存，各段读缓存，模型看得到全文、术语前后一致。编辑器一次只发一个请求（并行会全部错过缓存）
+  - 原生 App 不自己切分（没有 remark，换个解析器块边界可能不同、段号悄悄错位）：`GET /admin/posts/:id/translation-plan` 返回 `{ sourceHash, segments }`，按段数逐段请求
   - 接口 `POST /admin/posts/:id/translations/:locale/generate`（body `{ part: "title" | "body", index?, sourceHash }`）：原文指纹对不上 409（段号会错位）、段号越界 400、原文语言 400；草稿也能生成。标题返回 JSON；正文返回 NDJSON 流（`delta` … 以 `done` 或 `error` 结束，事件 schema 在 shared；`done.model` 和标题的 `model` 经 `fitModelName` 收进 100 字，编辑器合并多个模型用 `combineModelNames`，超长时保留放得下的几个再加 ", …"（第一个名字就放不下时截断它腾出位置，"还有别的模型"的标记不丢），保证保存时 `generated.model` 合法）。先等上游接受请求再开始流：凭证无效（→ 502，不泄露上游信息）、上游限流（→ 429）仍是普通 JSON 错误；流开始后的错误写成 `error` 事件（SDK 在流中途抛的 APIError 没有 status，按 `error.type` 分类：overloaded / api_error → "暂时不可用"）。`done.text` 已对齐首尾空行（`fitTranslatedSegment`，shared，编辑器拼接时用同一个函数、幂等；只认空格 / 制表符 / 换行，全角空格是内容），各段直接拼接即正文；只有 `stopReason = end_turn` 算成功（拒答、截断都是失败）。浏览器断开或点"停止"时中止上游请求
   - 限流：通用写操作限流之外加 `rules.translate`（按用户每小时 120 次，标题和每段各算一次），**fail-closed**：Redis 出故障时翻译请求 503，其他写操作照常。它在处理函数里、所有校验（400 / 404 / 409、段号越界）通过之后、调用模型之前才计数（`checkRateLimit`）：被拒的请求不占付费调用的额度。上线前另在 Anthropic Console 设每月花费上限兜底
   - 用量（文章、语言、段、模型、token、是否回退）每次调用记一行日志，不入库。服务端回退时顶层 usage 只是最后那次尝试的，拒答前已输出的部分也计费，所以按 `usage.iterations` 里的 message / fallback_message 逐项相加（`usageFrom`）
@@ -200,7 +201,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 可点击区域 ≥ 44×44px，焦点样式可见，语义化 HTML，对比度达标
 
 ## 数据模型（初稿）
-- `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`
+- `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`、`app_auth_codes`（原生 App 登录的一次性授权码）
 - `posts`：slug, title, content_md, excerpt, status (draft | published), published_at, search_vector, source_locale（默认 zh）, cover_image（头图地址）
 - `post_translations`：(post_id, locale) 主键，title, content_md, excerpt, source_hash, origin（machine | human）, model, translated_at, search_vector；locale 只有格式 CHECK（加语言不需要迁移）；`db:migrate` 同样补齐 search_vector 为 NULL 的译文
 - `tags`（slug、name 均唯一，name 不分大小写）+ `tag_translations`（(tag_id, locale) 主键，name；同一语言内 name 不分大小写唯一）+ `post_tags`（position 为文章内顺序）
@@ -217,6 +218,11 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - challenge 一次性、5 分钟过期（DELETE … RETURNING 原子取出）；要求用户验证（UV）与可发现凭证
   - 首次设置 / 全部设备丢失后的恢复：临时设置 `ADMIN_SETUP_TOKEN` 允许未登录注册 Passkey，用完立即删除；不能删除最后一个 Passkey
   - Passkey 绑定 RP ID（前端域名）：换域名需要重新注册
+- 原生 App（`mikexxz-blog-apple` 仓库）登录后台：RFC 8252 的浏览器授权，不在 App 里直接用 Passkey（那要配 Associated Domains：网站放 apple-app-site-association、App 带开发者团队签名）
+  - App 生成 PKCE verifier，在 ASWebAuthenticationSession 里打开 `/admin/authorize-app?challenge&state&device&redirect_uri`（在 (panel) 里，没登录先走 Passkey 登录）；管理员点"允许"才 `POST /auth/app/codes` 发一次性授权码（库里只存哈希，2 分钟，`app_auth_codes`），跳回 `mikexxz-blog://auth/callback`（`APP_AUTH_REDIRECT_URI`，只接受这一个）
+  - 不能打开就自动发码：授权网址谁都能构造，别人在自己设备上注册同名网址协议、把网址发给你，你一点开授权码就到了他手里
+  - App 用授权码 + verifier 换 token（`POST /auth/app/token`，猜错一次授权码就作废），token 就是一个普通 session（同样的闲置 7 天 / 最长 30 天），放在 `Authorization: Bearer` 里；带了 Bearer 头就只认它，不看 cookie。退出用 `/auth/logout`
+  - CSRF：只带 Bearer、不带 cookie 的请求，以及换 token 的请求，不检查 Origin（不靠 cookie 就没有 CSRF；浏览器跨站发不出 Authorization 头）。带 cookie 的请求照常检查
 - 评论者：GitHub 登录（见"评论（v4c）"）
 - 用户提交的 Markdown 渲染前必须 sanitize
 - 写接口加限流
@@ -244,4 +250,5 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - [x] 设置与状态页（见"设置与状态页"）：后台选择翻译模型（文章、标签各一个），系统状态页（上线前：Neon 执行迁移 0012，再部署 API）
 - [ ] v5 工程化：Docker 镜像、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）、按顺序部署（先 API、迁移，后前端）
 - [x] v5.5 大模型翻译（见"多语言"）：译文编辑页手动点击生成（Sonnet 5.5，分段流式、提示缓存），作者过目后保存；结构校验，未修改的机器译文记为 machine（上线前：API 项目设 `ANTHROPIC_API_KEY`（还要有 `REDIS_URL`），没设之前生成按钮是禁用的；Anthropic Console 设每月花费上限；首次部署后在函数详情里确认默认 Max Duration 是 300 秒（未核实的假设，见"函数时长与代理"）、长段落经 `/api` 代理不被掐断）
+- [x] 原生 App（独立仓库 `mikexxz-blog-apple`，SwiftUI，iPhone / iPad / Mac）：前台阅读 + 后台管理。后台登录走浏览器授权（见"安全"）。上线前：Neon 执行迁移 0013（`app_auth_codes`），先部署 API（`/auth/app/*`、Bearer、`translation-plan`），再部署前端（`/admin/authorize-app`）
 - [ ] v6 收款：**暂缓，方案待定**。Stripe 不可用：Stripe 日本不允许以个人名义接受捐赠。需要先确定收款场景（打赏 / 付费文章 / 订阅）和收款主体，再选服务；无论用哪家，支付本身交给托管支付页，订单状态、webhook 签名校验、幂等、对账自己实现
