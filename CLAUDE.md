@@ -200,7 +200,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 可点击区域 ≥ 44×44px，焦点样式可见，语义化 HTML，对比度达标
 
 ## 数据模型（初稿）
-- `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`
+- `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`、`app_auth_codes`（原生 App 登录的一次性授权码）
 - `posts`：slug, title, content_md, excerpt, status (draft | published), published_at, search_vector, source_locale（默认 zh）, cover_image（头图地址）
 - `post_translations`：(post_id, locale) 主键，title, content_md, excerpt, source_hash, origin（machine | human）, model, translated_at, search_vector；locale 只有格式 CHECK（加语言不需要迁移）；`db:migrate` 同样补齐 search_vector 为 NULL 的译文
 - `tags`（slug、name 均唯一，name 不分大小写）+ `tag_translations`（(tag_id, locale) 主键，name；同一语言内 name 不分大小写唯一）+ `post_tags`（position 为文章内顺序）
@@ -217,6 +217,11 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - challenge 一次性、5 分钟过期（DELETE … RETURNING 原子取出）；要求用户验证（UV）与可发现凭证
   - 首次设置 / 全部设备丢失后的恢复：临时设置 `ADMIN_SETUP_TOKEN` 允许未登录注册 Passkey，用完立即删除；不能删除最后一个 Passkey
   - Passkey 绑定 RP ID（前端域名）：换域名需要重新注册
+- 原生 App（`mikexxz-blog-apple` 仓库）登录后台：RFC 8252 的浏览器授权，不在 App 里直接用 Passkey（那要配 Associated Domains：网站放 apple-app-site-association、App 带开发者团队签名）
+  - App 生成 PKCE verifier，在 ASWebAuthenticationSession 里打开 `/admin/authorize-app?challenge&state&device&redirect_uri`（在 (panel) 里，没登录先走 Passkey 登录）；管理员点"允许"才 `POST /auth/app/codes` 发一次性授权码（库里只存哈希，2 分钟，`app_auth_codes`），跳回 `mikexxz-blog://auth/callback`（`APP_AUTH_REDIRECT_URI`，只接受这一个）
+  - 不能打开就自动发码：授权网址谁都能构造，别人在自己设备上注册同名网址协议、把网址发给你，你一点开授权码就到了他手里
+  - App 用授权码 + verifier 换 token（`POST /auth/app/token`，猜错一次授权码就作废），token 就是一个普通 session（同样的闲置 7 天 / 最长 30 天），放在 `Authorization: Bearer` 里；带了 Bearer 头就只认它，不看 cookie。退出用 `/auth/logout`
+  - CSRF：只带 Bearer、不带 cookie 的请求，以及换 token 的请求，不检查 Origin（不靠 cookie 就没有 CSRF；浏览器跨站发不出 Authorization 头）。带 cookie 的请求照常检查
 - 评论者：GitHub 登录（见"评论（v4c）"）
 - 用户提交的 Markdown 渲染前必须 sanitize
 - 写接口加限流

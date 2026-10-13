@@ -1,4 +1,8 @@
 import {
+  appAuthCodeInputSchema,
+  type AppAuthCode,
+  type AppToken,
+  appTokenInputSchema,
   authenticationVerifyInputSchema,
   passkeyUpdateInputSchema,
   registrationOptionsInputSchema,
@@ -8,6 +12,7 @@ import {
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { Hono } from "hono";
 import { z } from "zod";
+import { consumeAppCode, createAppCode } from "../auth/app-codes.ts";
 import { consumeChallenge, saveChallenge } from "../auth/challenges.ts";
 import type { AuthConfig } from "../auth/config.ts";
 import {
@@ -60,6 +65,7 @@ export function authRoutes(db: Db, config: AuthConfig, webauthn: WebAuthn, limit
     new Hono<AuthEnv>()
       .use("/registration/*", limitByIp)
       .use("/authentication/*", limitByIp)
+      .use("/app/*", limitByIp)
       /** 登录页用：还没有任何 Passkey 时显示"首次设置" */
       .get("/status", async (c) => c.json({ hasPasskeys: (await countPasskeys(db)) > 0 }))
 
@@ -217,6 +223,30 @@ export function authRoutes(db: Db, config: AuthConfig, webauthn: WebAuthn, limit
         const { token, expiresAt } = await createSession(db, owner.id, c.req.header("user-agent"));
         setSessionCookie(c, config, token);
         return c.json({ user: { displayName: owner.displayName }, expiresAt: expiresAt.toISOString() } satisfies SessionInfo);
+      })
+
+      // ---------- 原生 App 登录（见 @blog/shared 的 app-auth.ts） ----------
+      // 网站上的授权页调用：已登录的管理员允许某台设备上的 App 登录，拿到一次性授权码交给 App
+      .post("/app/codes", requireSession, validate("json", appAuthCodeInputSchema), async (c) => {
+        const { codeChallenge, deviceName } = c.req.valid("json");
+        const code = await createAppCode(db, { userId: sessionOf(c).user.id, codeChallenge, deviceName });
+        return c.json({ code } satisfies AppAuthCode, 201);
+      })
+
+      // App 调用：授权码 + PKCE verifier 换 token（一个新的 session，有效期规则和网站登录相同）
+      .post("/app/token", validate("json", appTokenInputSchema), async (c) => {
+        const { code, codeVerifier } = c.req.valid("json");
+        const grant = await consumeAppCode(db, code, codeVerifier);
+        // 不区分"授权码不存在 / 过期 / verifier 不对"，和 Passkey 登录失败一样不给线索
+        if (!grant) throw new HttpError(400, "validation_error", "授权码无效或已过期，请重新登录");
+        const owner = await getUserById(db, grant.userId);
+        if (!owner) throw new HttpError(400, "validation_error", "授权码无效或已过期，请重新登录");
+        await deleteExpiredSessions(db);
+        const { token, expiresAt } = await createSession(db, owner.id, `App: ${grant.deviceName}`);
+        return c.json(
+          { token, user: { displayName: owner.displayName }, expiresAt: expiresAt.toISOString() } satisfies AppToken,
+          201,
+        );
       })
 
       // ---------- 登出 ----------
