@@ -11,4 +11,6 @@ export * from "./tag.ts";
 export * from "./site.ts";
 export * from "./status.ts";
 export * from "./settings.ts";
+export * from "./cover-options.ts";
+export * from "./cover.ts";
 export * from "./app-auth.ts";

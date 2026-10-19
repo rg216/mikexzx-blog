@@ -1,0 +1,176 @@
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding-block: var(--space-6);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-subhead);
+}
+
+/* 宽屏左右两栏（描述 | 图片），窄屏上下排 */
+.layout {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 46rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    align-items: start;
+  }
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.stepTitle {
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+}
+
+.imageRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.meta,
+.note,
+.candidateMeta {
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-secondary-label);
+  font-size: var(--font-size-footnote);
+  font-variant-numeric: tabular-nums;
+}
+
+.pending {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+/* 预览和结果都按出图的比例（16:9）占位，图出来时版面不跳 */
+.previewImage,
+.previewBlank,
+.candidateImage {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  object-fit: cover;
+}
+
+/* 预览是生成途中的半成品：变淡，免得被当成结果 */
+.previewImage {
+  opacity: 0.6;
+}
+
+.previewBlank {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .previewBlank {
+    animation: none;
+  }
+}
+
+.results {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.resultsLegend {
+  margin-bottom: var(--space-1);
+  padding: 0;
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: var(--space-2);
+}
+
+/* 整张卡片可点（label 包着 radio）；选中的那张用 accent 色描边 */
+.candidate {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.candidateImage {
+  outline: 3px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color var(--duration-fast) var(--ease-standard);
+}
+
+.candidate:has(.radio:checked) .candidateImage {
+  outline-color: var(--color-accent);
+}
+
+.candidate:has(.radio:focus-visible) .candidateImage {
+  outline-color: var(--color-accent);
+  outline-style: dashed;
+}
+
+/* 原生 radio 留给键盘和读屏，视觉上用描边表示选中 */
+.radio {
+  position: absolute;
+  top: var(--space-1);
+  left: var(--space-1);
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.footer {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.footerButtons {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.error {
+  flex: 1 1 12rem;
+  color: var(--color-destructive-text);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+}

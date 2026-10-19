@@ -21,6 +21,8 @@ import { searchRoutes } from "./routes/search.ts";
 import { viewRoutes } from "./routes/views.ts";
 import type { ObjectStorage } from "./storage.ts";
 import type { Translator } from "./lib/translator.ts";
+import type { CoverBriefWriter } from "./lib/cover-brief.ts";
+import type { CoverImager } from "./lib/cover-imager.ts";
 
 type AppOptions = {
   db: Db;
@@ -43,6 +45,12 @@ type AppOptions = {
   translator?: Translator | null;
   /** 测试用：翻译流的心跳间隔（毫秒），默认 TRANSLATION_HEARTBEAT_MS */
   translationHeartbeatMs?: number;
+  /** 生成头图第一步（Claude 写画面描述）；和 translator 一样，没有 redis 时不启用 */
+  coverBriefWriter?: CoverBriefWriter | null;
+  /** 生成头图第二步（OpenAI 出图）；没有 redis 时不启用 */
+  coverImager?: CoverImager | null;
+  /** 测试用：出图流的心跳间隔（毫秒），默认 COVER_HEARTBEAT_MS */
+  coverHeartbeatMs?: number;
   /** 定时任务接口的密钥；不传则定时任务接口返回 503 */
   cronSecret?: string;
   /** 测试里关掉，避免刷屏 */
@@ -64,6 +72,9 @@ export function createApp({
   github = null,
   translator = null,
   translationHeartbeatMs,
+  coverBriefWriter = null,
+  coverImager = null,
+  coverHeartbeatMs,
   cronSecret,
   logRequests = false,
   version = null,
@@ -73,6 +84,8 @@ export function createApp({
   // 翻译每次调用都花钱，限流（rules.translate）是唯一的额度上限：没有 Redis 就限不了，干脆不启用
   const enabledTranslator = redis ? translator : null;
   if (translator && !redis) console.warn("ANTHROPIC_API_KEY is set but REDIS_URL is not: LLM translation stays disabled (its rate limit needs Redis)");
+  // 生成头图同理：两步都花钱，都靠 fail-closed 的限流兜住额度
+  if (coverImager && !redis) console.warn("OPENAI_API_KEY is set but REDIS_URL is not: cover image generation stays disabled (its rate limit needs Redis)");
 
   if (logRequests) app.use(logger());
   app.use(secureHeaders());
@@ -94,6 +107,12 @@ export function createApp({
     limiterHealthy: () => (redis ? redisReachable(redis) : Promise.resolve(false)),
     ...(translationHeartbeatMs === undefined ? {} : { heartbeatMs: translationHeartbeatMs }),
   };
+  const covers = {
+    briefWriter: redis ? coverBriefWriter : null,
+    imager: redis ? coverImager : null,
+    limiterHealthy: translation.limiterHealthy,
+    ...(coverHeartbeatMs === undefined ? {} : { heartbeatMs: coverHeartbeatMs }),
+  };
   const status = {
     version,
     redis,
@@ -101,11 +120,12 @@ export function createApp({
     githubConfigured: github !== null,
     // 状态页要分别说明"有没有密钥"和"有没有 Redis"，所以给它没经过 Redis 过滤的那个
     translator,
+    coverImager,
     probeRevalidate: revalidateProbe,
     cronConfigured: Boolean(cronSecret),
     ...(statusTimeoutMs === undefined ? {} : { timeoutMs: statusTimeoutMs }),
   };
-  app.route("/admin", adminRoutes(db, revalidate, limiter, storage, github, translation, status));
+  app.route("/admin", adminRoutes(db, revalidate, limiter, storage, github, translation, covers, status));
   app.route("/internal", internalRoutes(db, redis, storage, cronSecret));
 
   app.notFound((c) => c.json(errorBody("not_found", "接口不存在"), 404));

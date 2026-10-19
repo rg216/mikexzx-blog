@@ -339,7 +339,7 @@ export function textOf(message: Anthropic.Beta.Messages.BetaMessage): string {
   return message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
 }
 
-function stopOf(message: Anthropic.Beta.Messages.BetaMessage): TranslationStop {
+export function stopOf(message: Anthropic.Beta.Messages.BetaMessage): TranslationStop {
   return {
     // 非流式和流式结束后 stop_reason 都不会是 null；万一是，当作未知原因（不算成功）
     stopReason: message.stop_reason ?? "unknown",
@@ -397,26 +397,32 @@ export type TranslatorFailure = {
   aborted: boolean;
 };
 
-const TEMPORARILY_UNAVAILABLE = "翻译服务暂时不可用，请稍后再试";
-const CREDENTIALS_PROBLEM = "翻译服务的凭证无效或没有权限（详见服务器日志）";
-const BILLING_PROBLEM = "翻译服务的账户余额或账单有问题（详见服务器日志）";
-const REQUEST_REJECTED = "翻译服务拒绝了请求（详见服务器日志）";
-const upstreamRateLimited: TranslatorFailure = { status: 429, code: "rate_limited", message: "翻译服务繁忙（上游限流），请稍后再试", aborted: false };
+/** 给作者看的说明里怎么称呼这个服务（翻译之外，写头图的画面描述也用 Claude） */
+const failureMessages = (service: string) => ({
+  temporarilyUnavailable: `${service}暂时不可用，请稍后再试`,
+  credentials: `${service}的凭证无效或没有权限（详见服务器日志）`,
+  billing: `${service}的账户余额或账单有问题（详见服务器日志）`,
+  rejected: `${service}拒绝了请求（详见服务器日志）`,
+  rateLimited: `${service}繁忙（上游限流），请稍后再试`,
+  connection: `连接${service}失败，请稍后再试`,
+});
 
 /**
  * 把 SDK 的错误分类成我们的错误响应。用 SDK 的类型化错误类判断，不做字符串匹配；
  * 注意顺序：APIUserAbortError、APIConnectionError 都是 APIError 的子类，要先判断。
  * SDK 已对 408 / 409 / 429 / 5xx 和连接错误自动重试 2 次，到这里的是重试之后仍失败的。
  */
-export function classifyTranslatorError(error: unknown): TranslatorFailure {
+export function classifyTranslatorError(error: unknown, service = "翻译服务"): TranslatorFailure {
+  const messages = failureMessages(service);
   const upstream = (message: string): TranslatorFailure => ({ status: 502, code: "internal_error", message, aborted: false });
+  const upstreamRateLimited: TranslatorFailure = { status: 429, code: "rate_limited", message: messages.rateLimited, aborted: false };
   if (error instanceof Anthropic.APIUserAbortError) return { status: 500, code: "internal_error", message: "生成已取消", aborted: true };
   // 凭证无效 / 无权限：是服务器的配置问题，不是作者的请求有问题（返回 502，不把上游的说明透出去）
   if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
-    return upstream(CREDENTIALS_PROBLEM);
+    return upstream(messages.credentials);
   }
   if (error instanceof Anthropic.RateLimitError) return upstreamRateLimited;
-  if (error instanceof Anthropic.APIConnectionError) return upstream("连接翻译服务失败，请稍后再试");
+  if (error instanceof Anthropic.APIConnectionError) return upstream(messages.connection);
   if (error instanceof Anthropic.APIError) {
     /*
      * 流开始之后（HTTP 200 已经发出）上游在 SSE 里发来的 error 事件：SDK 抛出的 APIError 没有 status，
@@ -426,25 +432,25 @@ export function classifyTranslatorError(error: unknown): TranslatorFailure {
       case "overloaded_error":
       case "api_error":
       case "timeout_error":
-        return upstream(TEMPORARILY_UNAVAILABLE);
+        return upstream(messages.temporarilyUnavailable);
       case "rate_limit_error":
         return upstreamRateLimited;
       case "billing_error":
-        return upstream(BILLING_PROBLEM);
+        return upstream(messages.billing);
       case "authentication_error":
       case "permission_error":
-        return upstream(CREDENTIALS_PROBLEM);
+        return upstream(messages.credentials);
       case "invalid_request_error":
       case "not_found_error":
-        return upstream(REQUEST_REJECTED);
+        return upstream(messages.rejected);
     }
-    if (error.status === 402) return upstream(BILLING_PROBLEM);
+    if (error.status === 402) return upstream(messages.billing);
     // 500、529（过载）等
-    if (typeof error.status === "number" && error.status >= 500) return upstream(TEMPORARILY_UNAVAILABLE);
+    if (typeof error.status === "number" && error.status >= 500) return upstream(messages.temporarilyUnavailable);
     // 400 / 404 / 413 等：请求本身被拒（参数、模型不可用…），是代码或配置的问题
-    if (typeof error.status === "number") return upstream(REQUEST_REJECTED);
+    if (typeof error.status === "number") return upstream(messages.rejected);
     // 没有状态码、类型也不认识：多半是流中途出的上游故障，按暂时不可用处理（作者重试即可）
-    return upstream(TEMPORARILY_UNAVAILABLE);
+    return upstream(messages.temporarilyUnavailable);
   }
   return { status: 500, code: "internal_error", message: "服务器内部错误", aborted: false };
 }

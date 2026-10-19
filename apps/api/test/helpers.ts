@@ -13,6 +13,8 @@ import { createRedisProvider, type RedisProvider } from "../src/redis.ts";
 import { createObjectStorage, type ObjectStorage } from "../src/storage.ts";
 import type { RevalidateProbeResult } from "../src/lib/revalidate.ts";
 import type { Translator } from "../src/lib/translator.ts";
+import type { CoverBriefWriter } from "../src/lib/cover-brief.ts";
+import type { CoverImager } from "../src/lib/cover-imager.ts";
 
 export const WEB_ORIGIN = "https://blog.test";
 export const SETUP_TOKEN = "test-setup-token-0123456789abcdef0123456789";
@@ -226,6 +228,9 @@ export function setupTestApp({
   withRedis = false,
   withStorage = false,
   translator = null,
+  coverBriefWriter = null,
+  coverImager = null,
+  coverHeartbeatMs,
   redisProvider,
   translationHeartbeatMs,
   revalidateProbe = null,
@@ -234,6 +239,11 @@ export function setupTestApp({
   withRedis?: boolean;
   withStorage?: boolean;
   translator?: Translator | null;
+  /** 生成头图的两步（假实现；绝不在测试里调用真 API） */
+  coverBriefWriter?: CoverBriefWriter | null;
+  coverImager?: CoverImager | null;
+  /** 出图流的心跳间隔（毫秒） */
+  coverHeartbeatMs?: number;
   redisProvider?: RedisProvider;
   /** 翻译流的心跳间隔（毫秒），测试心跳时调短 */
   translationHeartbeatMs?: number;
@@ -264,6 +274,9 @@ export function setupTestApp({
     github: fakeGitHub.github,
     translator,
     ...(translationHeartbeatMs === undefined ? {} : { translationHeartbeatMs }),
+    coverBriefWriter,
+    coverImager,
+    ...(coverHeartbeatMs === undefined ? {} : { coverHeartbeatMs }),
     revalidateProbe,
     ...(statusTimeoutMs === undefined ? {} : { statusTimeoutMs }),
     cronSecret: CRON_SECRET,

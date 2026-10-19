@@ -8,6 +8,8 @@ import { createGitHub } from "./auth/github.ts";
 import { githubConfigFrom, loadEnv, storageConfigFrom } from "./env.ts";
 import { createRevalidateProbe, createRevalidator } from "./lib/revalidate.ts";
 import { createAnthropicTranslator } from "./lib/translator.ts";
+import { createAnthropicCoverBriefWriter } from "./lib/cover-brief.ts";
+import { createOpenAiCoverImager } from "./lib/cover-imager.ts";
 import { createRedisProvider } from "./redis.ts";
 import { createObjectStorage } from "./storage.ts";
 import type { AuthEnv } from "./middleware/auth.ts";
@@ -37,6 +39,8 @@ const app = createApp({
   storage: storage ? createObjectStorage(storage) : null,
   github: github ? createGitHub(github) : null,
   translator: env.ANTHROPIC_API_KEY ? createAnthropicTranslator(env.ANTHROPIC_API_KEY) : null,
+  coverBriefWriter: env.ANTHROPIC_API_KEY ? createAnthropicCoverBriefWriter(env.ANTHROPIC_API_KEY) : null,
+  coverImager: env.OPENAI_API_KEY ? createOpenAiCoverImager(env.OPENAI_API_KEY) : null,
   ...(env.CRON_SECRET ? { cronSecret: env.CRON_SECRET } : {}),
   logRequests: true,
   version: env.VERCEL_GIT_COMMIT_SHA ?? null,

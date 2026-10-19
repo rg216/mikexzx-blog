@@ -75,3 +75,11 @@
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
+
+/* 头图风格下面的按钮 */
+.styleActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1-5);
+}

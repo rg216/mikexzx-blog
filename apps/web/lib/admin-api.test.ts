@@ -1,4 +1,4 @@
-import type { AdminPost, AdminTranslation } from "@blog/shared";
+import { type AdminPost, type AdminTranslation, defaultSiteSettings } from "@blog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { AdminApiError, createAdminApi, parseTranslationStreamLine, toAdminApiError } from "./admin-api";
 
@@ -396,7 +396,7 @@ describe("parseTranslationStreamLine", () => {
 
 describe("settings and status", () => {
   it("GETs and PATCHes the settings", async () => {
-    const settings = { translationModel: "claude-sonnet-5-5", tagTranslationModel: "claude-haiku-5-5" };
+    const settings = { ...defaultSiteSettings, tagTranslationModel: "claude-haiku-5-5" };
     const read = setup(jsonResponse(200, settings));
     await expect(read.api.getSettings()).resolves.toEqual(settings);
     expect(read.fetch.mock.calls[0]?.[0]).toBe("/api/admin/settings");
@@ -421,5 +421,59 @@ describe("settings and status", () => {
     expect(fetch.mock.calls[0]?.[0]).toBe("/api/admin/status");
     const bad = setup(jsonResponse(200, { ...status, checks: [{ id: "database", state: "great" }] }));
     expect((await catchError(bad.api.getStatus())).code).toBe("bad_response");
+  });
+});
+
+describe("cover generation", () => {
+  const usage = { inputTokens: 5, outputTokens: 1568 };
+  const lines = (...events: unknown[]) => events.map((e) => `${JSON.stringify(e)}\n`).join("");
+  const ndjson = (text: string, status = 200) => new Response(text, { status, headers: { "content-type": "application/x-ndjson; charset=utf-8" } });
+  const done = { type: "done", contentType: "image/webp", image: "CCCC", model: "gpt-image-2.5-flare", quality: "medium", usage };
+
+  it("GETs the config of both steps", async () => {
+    const config = {
+      brief: { available: true, model: "claude-sonnet-5-5" },
+      image: { available: false, model: "gpt-image-2.5-flare", quality: "medium", reason: "not_configured" },
+    };
+    const { api, fetch } = setup(jsonResponse(200, config));
+    await expect(api.getCoverConfig()).resolves.toEqual(config);
+    expect(fetch.mock.calls[0]?.[0]).toBe("/api/admin/covers/config");
+  });
+
+  it("POSTs the form contents for a brief", async () => {
+    const result = { prompt: "A key.", alt: "钥匙", model: "claude-sonnet-5-5", usage: { inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } };
+    const { api, fetch } = setup(jsonResponse(200, result));
+    await expect(api.writeCoverBrief({ title: "标题", tags: ["性能"], contentMd: "正文" })).resolves.toEqual(result);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(url).toBe("/api/admin/covers/brief");
+    expect(JSON.parse(String(init?.body))).toEqual({ title: "标题", tags: ["性能"], contentMd: "正文" });
+  });
+
+  it("streams previews and returns the final image, ignoring pings", async () => {
+    const { api, fetch } = setup(ndjson(lines({ type: "ping" }, { type: "partial", index: 0, contentType: "image/webp", image: "AAAA" }, { type: "ping" }, done)));
+    const previews: string[] = [];
+    let pings = 0;
+    await expect(
+      api.generateCoverImage({ prompt: "A key." }, { onPartial: (p) => previews.push(p.image), onPing: () => (pings += 1) }),
+    ).resolves.toEqual(done);
+    expect(previews).toEqual(["AAAA"]);
+    expect(pings).toBe(2);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(url).toBe("/api/admin/covers/generate");
+    expect(JSON.parse(String(init?.body))).toEqual({ prompt: "A key." });
+  });
+
+  it("turns an error event, a stream without a result and a malformed line into errors", async () => {
+    const failed = setup(ndjson(lines({ type: "error", code: "rate_limited", message: "OpenAI 繁忙" })));
+    expect(await catchError(failed.api.generateCoverImage({ prompt: "x" }))).toMatchObject({ code: "rate_limited", message: "OpenAI 繁忙" });
+    const cut = setup(ndjson(lines({ type: "partial", index: 0, contentType: "image/webp", image: "AAAA" })));
+    expect(await catchError(cut.api.generateCoverImage({ prompt: "x" }))).toMatchObject({ code: "network_error", message: "连接中断，图片没有生成完" });
+    const bad = setup(ndjson(lines({ ...done, image: "<svg onload=alert(1)>" })));
+    expect((await catchError(bad.api.generateCoverImage({ prompt: "x" }))).code).toBe("bad_response");
+  });
+
+  it("surfaces a moderation rejection before the stream as a plain API error", async () => {
+    const { api } = setup(jsonResponse(400, { error: { code: "validation_error", message: "被 OpenAI 的内容审核拦下了，改一下画面描述再试" } }));
+    expect(await catchError(api.generateCoverImage({ prompt: "x" }))).toMatchObject({ status: 400, message: "被 OpenAI 的内容审核拦下了，改一下画面描述再试" });
   });
 });

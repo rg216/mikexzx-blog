@@ -16,7 +16,7 @@ export const statusStates = ["ok", "warning", "error", "off"] as const;
 export const statusStateSchema = z.enum(statusStates);
 export type StatusState = z.infer<typeof statusStateSchema>;
 
-export const statusCheckIds = ["database", "migrations", "redis", "storage", "anthropic", "github", "revalidate", "cron"] as const;
+export const statusCheckIds = ["database", "migrations", "redis", "storage", "anthropic", "openai", "github", "revalidate", "cron"] as const;
 export type StatusCheckId = (typeof statusCheckIds)[number];
 
 export const statusCheckSchema = z.object({

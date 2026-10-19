@@ -111,4 +111,9 @@ export const rules = {
    * 所以 Redis 不可用时拒绝（failClosed）；没配 Redis 时翻译功能整个不启用（见 createApp）。
    */
   translate: { name: "translate", limit: 120, windowSeconds: 3600, failClosed: true },
+  /**
+   * 生成头图的出图（OpenAI）：按用户，每小时 30 张。一张图的价格是一次翻译请求的好几倍，正常挑头图一篇文章几张就够。
+   * 同样 failClosed；写画面描述（Claude）那一步算在 translate 的额度里（和标签名翻译一样）。
+   */
+  coverImage: { name: "cover-image", limit: 30, windowSeconds: 3600, failClosed: true },
 } satisfies Record<string, RateRule>;

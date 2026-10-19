@@ -1,4 +1,12 @@
 import { z } from "zod";
+import {
+  coverImageModelIdSchema,
+  coverImageQualitySchema,
+  coverStyleSchema,
+  DEFAULT_COVER_IMAGE_MODEL,
+  DEFAULT_COVER_IMAGE_QUALITY,
+  DEFAULT_COVER_STYLE,
+} from "./cover-options.ts";
 
 /*
  * 后台"设置"里可以改的运行时设置（GET / PATCH /admin/settings，存在 API 的 settings 表里）。
@@ -71,6 +79,13 @@ export const siteSettingsSchema = z.object({
   translationModel: translationModelIdSchema,
   /** 标签名翻译用的模型 */
   tagTranslationModel: translationModelIdSchema,
+  /** 生成头图第一步：写画面描述的 Claude 模型 */
+  coverPromptModel: translationModelIdSchema,
+  /** 生成头图第二步：出图的 OpenAI 模型和画质 */
+  coverImageModel: coverImageModelIdSchema,
+  coverImageQuality: coverImageQualitySchema,
+  /** 头图风格（英文），每次出图都拼在画面描述前面，写描述的 Claude 也按它写 */
+  coverStyle: coverStyleSchema,
 });
 export type SiteSettings = z.infer<typeof siteSettingsSchema>;
 export type SiteSettingKey = keyof SiteSettings;
@@ -78,6 +93,11 @@ export type SiteSettingKey = keyof SiteSettings;
 export const defaultSiteSettings: SiteSettings = {
   translationModel: DEFAULT_TRANSLATION_MODEL,
   tagTranslationModel: DEFAULT_TRANSLATION_MODEL,
+  coverPromptModel: DEFAULT_TRANSLATION_MODEL,
+  coverImageModel: DEFAULT_COVER_IMAGE_MODEL,
+  coverImageQuality: DEFAULT_COVER_IMAGE_QUALITY,
+  // 没改过时用代码里的默认风格：以后调整默认值，没改过的站点自动跟上
+  coverStyle: DEFAULT_COVER_STYLE,
 };
 
 /** PATCH /admin/settings：只改给出的键 */
@@ -92,13 +112,13 @@ export type SiteSettingsUpdate = z.input<typeof siteSettingsUpdateSchema>;
  * 一行坏数据不会让整个设置读不出来。表里多出来的键（旧版本留下的）忽略。
  */
 export function settingsFromRows(rows: readonly { key: string; value: unknown }[]): SiteSettings {
-  const settings: SiteSettings = { ...defaultSiteSettings };
+  // 逐键写入：TS 没法把"第 k 个 schema 的结果"和"第 k 个字段"对上，所以先当成 unknown 收集，最后整体校验一次（必然通过）
+  const settings: Record<string, unknown> = { ...defaultSiteSettings };
   const shape = siteSettingsSchema.shape;
   for (const { key, value } of rows) {
     if (!Object.hasOwn(shape, key)) continue;
-    const k = key as SiteSettingKey;
-    const parsed = shape[k].safeParse(value);
-    if (parsed.success) settings[k] = parsed.data;
+    const parsed = shape[key as SiteSettingKey].safeParse(value);
+    if (parsed.success) settings[key] = parsed.data;
   }
-  return settings;
+  return siteSettingsSchema.parse(settings);
 }

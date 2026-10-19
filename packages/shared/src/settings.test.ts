@@ -8,7 +8,17 @@ import {
   translationModelInfo,
   translationModels,
 } from "./settings.ts";
+import { COVER_STYLE_MAX_LENGTH, coverImageModels, DEFAULT_COVER_IMAGE_MODEL, DEFAULT_COVER_STYLE } from "./cover-options.ts";
 import { worstState } from "./status.ts";
+
+describe("cover image options", () => {
+  it("keeps the default on the list, and the default style within its limit", () => {
+    expect(coverImageModels.map((model) => model.id)).toContain(DEFAULT_COVER_IMAGE_MODEL);
+    expect(DEFAULT_COVER_STYLE.length).toBeLessThanOrEqual(COVER_STYLE_MAX_LENGTH);
+    // 头图三种语言共用：默认风格明确禁止中文、日文
+    expect(DEFAULT_COVER_STYLE).toContain("Never Chinese or Japanese characters");
+  });
+});
 
 describe("translationModels", () => {
   it("lists each model once, cheapest first, and only Haiku lacks a server-side fallback", () => {
@@ -41,7 +51,14 @@ describe("settingsFromRows", () => {
         { key: "oldSetting", value: true },
         { key: "toString", value: "claude-opus-5-5" },
       ]),
-    ).toEqual({ translationModel: DEFAULT_TRANSLATION_MODEL, tagTranslationModel: "claude-fable-5-1" });
+    ).toEqual({ ...defaultSiteSettings, translationModel: DEFAULT_TRANSLATION_MODEL, tagTranslationModel: "claude-fable-5-1" });
+  });
+
+  it("keeps a custom cover style (trimmed) and falls back for an empty or overlong one", () => {
+    expect(settingsFromRows([{ key: "coverStyle", value: " Flat. " }]).coverStyle).toBe("Flat.");
+    expect(settingsFromRows([{ key: "coverStyle", value: "" }]).coverStyle).toBe(DEFAULT_COVER_STYLE);
+    expect(settingsFromRows([{ key: "coverStyle", value: "x".repeat(COVER_STYLE_MAX_LENGTH + 1) }]).coverStyle).toBe(DEFAULT_COVER_STYLE);
+    expect(settingsFromRows([{ key: "coverImageModel", value: "dall-e-3" }]).coverImageModel).toBe(DEFAULT_COVER_IMAGE_MODEL);
   });
 });
 

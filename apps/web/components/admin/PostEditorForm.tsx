@@ -342,7 +342,12 @@ export function PostEditorForm({ initialPost }: { initialPost: AdminPost | null 
           </div>
 
           <div className={styles.coverField}>
-            <CoverField cover={values.cover} onChange={(cover) => setField("cover", cover)} error={errors.cover} />
+            <CoverField
+              cover={values.cover}
+              onChange={(cover) => setField("cover", cover)}
+              error={errors.cover}
+              source={{ title: values.title, slug: values.slug, tags: values.tags.map((tag) => tag.name), contentMd: values.contentMd }}
+            />
           </div>
 
           {/* 译文挂在文章 id 上，新建的文章保存之后才有入口 */}

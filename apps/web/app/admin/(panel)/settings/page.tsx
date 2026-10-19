@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CoverSettings } from "@/components/admin/CoverSettings";
 import { ModelSettings } from "@/components/admin/ModelSettings";
 import { PasskeySettings } from "@/components/admin/PasskeySettings";
 import { SettingsSectionTabs } from "@/components/admin/SettingsSectionTabs";
@@ -13,6 +14,7 @@ export default function SettingsPage() {
       <h1 className={styles.title}>设置</h1>
       <div className={styles.sections}>
         <ModelSettings />
+        <CoverSettings />
         <PasskeySettings />
       </div>
     </div>

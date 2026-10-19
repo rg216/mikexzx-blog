@@ -1,18 +1,14 @@
 "use client";
 
-import { type SiteSettings, type TranslationModelId, translationModels } from "@blog/shared";
-import { useEffect, useId, useState } from "react";
+import { translationModels } from "@blog/shared";
+import { useId } from "react";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
-import { AdminApiError, adminApi } from "@/lib/admin-api";
 import { modelPriceLabel } from "@/lib/system-status";
 import page from "./SettingsPage.module.css";
 import styles from "./ModelSettings.module.css";
-
-type State = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; settings: SiteSettings };
-
-const describe = (error: unknown) => (error instanceof AdminApiError ? error.message : "网络错误，请稍后再试");
+import { type SettingsState, useSiteSettings } from "./useSiteSettings";
 
 /** 文章和标签各自选一个模型：标签名很短，用便宜的模型就够，文章要准确 */
 const purposes = [
@@ -20,51 +16,14 @@ const purposes = [
   { key: "tagTranslationModel", label: "标签翻译", hint: "标签名只有几个词，Haiku 5.5 通常就够，费用约是 Sonnet 的 1/20" },
 ] as const;
 
+export const claudeModelOptions = translationModels.map((model) => ({ id: model.id, name: model.name, summary: model.summary, detail: modelPriceLabel(model) }));
+
 /**
  * 设置页的"翻译模型"一节。选了就保存（和 iOS 设置一样，没有单独的保存按钮），失败时退回原来的选项。
  * 已经打开的译文编辑页不受影响：编辑器在页面打开时读取模型，生成一篇译文的过程中不换模型（提示缓存按模型分开）。
  */
 export function ModelSettings() {
-  const [state, setState] = useState<State>({ kind: "loading" });
-  const [reload, setReload] = useState(0);
-  const [saving, setSaving] = useState<keyof SiteSettings | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [announcement, setAnnouncement] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    adminApi
-      .getSettings()
-      .then((settings) => {
-        if (!cancelled) setState({ kind: "ready", settings });
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setState({ kind: "error", message: describe(err) });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [reload]);
-
-  async function choose(key: keyof SiteSettings, model: TranslationModelId) {
-    if (state.kind !== "ready" || state.settings[key] === model) return;
-    const previous = state.settings;
-    // 先显示新选项，失败再退回：选中状态跟着点击立刻变，不用等网络
-    setState({ kind: "ready", settings: { ...previous, [key]: model } });
-    setSaving(key);
-    setError(null);
-    try {
-      const settings = await adminApi.updateSettings({ [key]: model });
-      setState({ kind: "ready", settings });
-      const purpose = purposes.find((p) => p.key === key)?.label ?? "";
-      setAnnouncement(`${purpose}已改用 ${translationModels.find((m) => m.id === model)?.name ?? model}`);
-    } catch (err) {
-      setState({ kind: "ready", settings: previous });
-      setError(describe(err));
-    } finally {
-      setSaving(null);
-    }
-  }
+  const { state, retry, saving, error, announcement, save } = useSiteSettings();
 
   return (
     <section aria-labelledby="models-heading">
@@ -75,29 +34,19 @@ export function ModelSettings() {
       <p role="status" className="visually-hidden">
         {announcement}
       </p>
-
-      {state.kind === "loading" && (
-        <div className={page.placeholder} role="status">
-          <Spinner />
-          <span>正在加载…</span>
-        </div>
-      )}
-      {state.kind === "error" && (
-        <Banner title="加载失败" action={<Button onClick={() => setReload((n) => n + 1)}>重试</Button>}>
-          {state.message}
-        </Banner>
-      )}
+      <SettingsLoading state={state} onRetry={retry} />
       {state.kind === "ready" && (
         <div className={styles.purposes}>
           {error && <Banner title="没有保存">{error}</Banner>}
           {purposes.map((purpose) => (
-            <ModelChoice
+            <OptionGroup
               key={purpose.key}
               label={purpose.label}
               hint={purpose.hint}
+              options={claudeModelOptions}
               value={state.settings[purpose.key]}
               saving={saving === purpose.key}
-              onChange={(model) => void choose(purpose.key, model)}
+              onChange={(model) => void save(purpose.key, model, `${purpose.label}已改用 ${translationModels.find((m) => m.id === model)?.name ?? model}`)}
             />
           ))}
         </div>
@@ -106,19 +55,43 @@ export function ModelSettings() {
   );
 }
 
-/** 一组单选：iOS 分组列表的样子，每行是模型名、说明和价格；整行可点（label 包着 radio） */
-function ModelChoice({
+/** 设置还没读出来时的占位和读取失败的提示（各节共用） */
+export function SettingsLoading({ state, onRetry }: { state: SettingsState; onRetry: () => void }) {
+  if (state.kind === "loading") {
+    return (
+      <div className={page.placeholder} role="status">
+        <Spinner />
+        <span>正在加载…</span>
+      </div>
+    );
+  }
+  if (state.kind === "error") {
+    return (
+      <Banner title="加载失败" action={<Button onClick={onRetry}>重试</Button>}>
+        {state.message}
+      </Banner>
+    );
+  }
+  return null;
+}
+
+export type Option<T extends string> = { id: T; name: string; summary: string; detail?: string };
+
+/** 一组单选：iOS 分组列表的样子，每行是名称、说明和补充（如价格）；整行可点（label 包着 radio） */
+export function OptionGroup<T extends string>({
   label,
   hint,
+  options,
   value,
   saving,
   onChange,
 }: {
   label: string;
   hint: string;
-  value: TranslationModelId;
+  options: readonly Option<T>[];
+  value: T;
   saving: boolean;
-  onChange: (model: TranslationModelId) => void;
+  onChange: (value: T) => void;
 }) {
   const name = useId();
   const hintId = `${name}-hint`;
@@ -132,13 +105,13 @@ function ModelChoice({
         {hint}
       </p>
       <div className={page.list}>
-        {translationModels.map((model) => (
-          <label key={model.id} className={`${page.item} ${styles.option}`}>
-            <input type="radio" name={name} value={model.id} checked={value === model.id} onChange={() => onChange(model.id)} className={styles.radio} />
+        {options.map((option) => (
+          <label key={option.id} className={`${page.item} ${styles.option}`}>
+            <input type="radio" name={name} value={option.id} checked={value === option.id} onChange={() => onChange(option.id)} className={styles.radio} />
             <span className={styles.text}>
-              <span className={styles.name}>{model.name}</span>
-              <span className={styles.summary}>{model.summary}</span>
-              <span className={styles.price}>{modelPriceLabel(model)}</span>
+              <span className={styles.name}>{option.name}</span>
+              <span className={styles.summary}>{option.summary}</span>
+              {option.detail && <span className={styles.price}>{option.detail}</span>}
             </span>
           </label>
         ))}

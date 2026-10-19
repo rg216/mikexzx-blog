@@ -1,4 +1,13 @@
 import {
+  type CoverBriefInput,
+  type CoverBriefResult,
+  coverBriefResultSchema,
+  type CoverConfig,
+  coverConfigSchema,
+  type CoverImageInput,
+  type CoverImageResult,
+  type CoverImageStreamEvent,
+  coverImageStreamEventSchema,
   type AdminComment,
   type AdminCommenter,
   adminCommenterSchema,
@@ -174,19 +183,35 @@ export type StreamSegmentOptions = {
 };
 
 const streamBroken = "连接中断，这一段没有翻译完";
+const imageStreamBroken = "连接中断，图片没有生成完";
 
 /** 解析 NDJSON 的一行：不是 JSON、或不符合 @blog/shared 的事件约定，都是 bad_response。纯函数，便于测试 */
-export function parseTranslationStreamLine(line: string, status = 200): TranslationStreamEvent {
+function parseStreamLine<T>(line: string, schema: z.ZodType<T>, status: number): T {
   let json: unknown;
   try {
     json = JSON.parse(line);
   } catch (error) {
     throw new AdminApiError(status, "bad_response", fallbackMessages.bad_response, [], { cause: error });
   }
-  const parsed = translationStreamEventSchema.safeParse(json);
+  const parsed = schema.safeParse(json);
   if (!parsed.success) throw new AdminApiError(status, "bad_response", fallbackMessages.bad_response, [], { cause: parsed.error });
   return parsed.data;
 }
+
+export function parseTranslationStreamLine(line: string, status = 200): TranslationStreamEvent {
+  return parseStreamLine(line, translationStreamEventSchema, status);
+}
+
+export function parseCoverImageStreamLine(line: string, status = 200): CoverImageStreamEvent {
+  return parseStreamLine(line, coverImageStreamEventSchema, status);
+}
+
+export type GenerateCoverImageOptions = {
+  signal?: AbortSignal;
+  /** 生成过程中的预览（base64） */
+  onPartial?: (preview: { image: string; contentType: string; index: number }) => void;
+  onPing?: () => void;
+};
 
 /**
  * 后台各接口共用的 JSON 客户端：发请求、把错误响应转成 AdminApiError、用 schema 校验响应。
@@ -320,6 +345,42 @@ export function createAdminApi(options: JsonClientOptions = {}) {
       }
       // 流正常结束却没有 done：服务端函数被掐断（超时）之类，这一段不完整
       throw new AdminApiError(res.status, "network_error", streamBroken);
+    },
+
+    /*
+     * 生成头图：两步都只回结果，选中的图由浏览器上传进媒体库（lib/image-upload.ts）。
+     */
+    async getCoverConfig(): Promise<CoverConfig> {
+      return parseJson(await request("GET", "/covers/config"), coverConfigSchema);
+    },
+
+    /** Claude 按表单里此刻的标题、标签、正文写画面描述 */
+    async writeCoverBrief(input: CoverBriefInput, signal?: AbortSignal): Promise<CoverBriefResult> {
+      return parseJson(await request("POST", "/covers/brief", input, { signal }), coverBriefResultSchema);
+    },
+
+    /**
+     * 出图：NDJSON 流，ping / partial 之后以 done 或 error 结束（和译文段的流同样的处理方式）。
+     * 流开始之前的错误（内容审核拦下提示词 400、429、503…）是普通的 JSON 错误响应。
+     */
+    async generateCoverImage(input: CoverImageInput, { signal, onPartial, onPing }: GenerateCoverImageOptions = {}): Promise<CoverImageResult> {
+      const res = await request("POST", "/covers/generate", input, { signal, accept: "application/x-ndjson" });
+      if (!res.body) throw new AdminApiError(res.status, "bad_response", fallbackMessages.bad_response);
+      try {
+        for await (const line of readLines(res.body)) {
+          const event = parseCoverImageStreamLine(line, res.status);
+          if (event.type === "ping") onPing?.();
+          else if (event.type === "partial") onPartial?.({ image: event.image, contentType: event.contentType, index: event.index });
+          else if (event.type === "done") return event;
+          else throw new AdminApiError(res.status, event.code, event.message || fallbackMessages[event.code]);
+        }
+      } catch (error) {
+        if (error instanceof AdminApiError) throw error;
+        if (signal?.aborted) throw error;
+        if (error instanceof LineDecodeError) throw new AdminApiError(res.status, "bad_response", fallbackMessages.bad_response, [], { cause: error });
+        throw new AdminApiError(0, "network_error", imageStreamBroken, [], { cause: error });
+      }
+      throw new AdminApiError(res.status, "network_error", imageStreamBroken);
     },
 
     /** 全部标签（含没有文章用的），按使用次数排序 */

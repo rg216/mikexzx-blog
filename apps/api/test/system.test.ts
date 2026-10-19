@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { apiErrorSchema, defaultSiteSettings, siteSettingsSchema, systemStatusSchema, type StatusCheckId } from "@blog/shared";
+import { apiErrorSchema, DEFAULT_COVER_STYLE, defaultSiteSettings, siteSettingsSchema, systemStatusSchema, type StatusCheckId } from "@blog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { jobRuns, settings } from "../src/db/schema.ts";
+import type { CoverImager } from "../src/lib/cover-imager.ts";
 import type { Translator } from "../src/lib/translator.ts";
 import type { RedisProvider } from "../src/redis.ts";
 import { migrationState } from "../src/services/status.ts";
@@ -25,6 +26,16 @@ const translator: Translator = {
   },
 };
 
+const verifiedImageModels: string[] = [];
+const coverImager: CoverImager = {
+  verifyModel: async (model) => {
+    verifiedImageModels.push(model);
+  },
+  generate: () => {
+    throw new Error("not used");
+  },
+};
+
 const brokenRedis: RedisProvider = () => Promise.reject(new Error("ECONNREFUSED"));
 const cron = { auth: false, headers: { authorization: `Bearer ${CRON_SECRET}` } } as const;
 
@@ -35,20 +46,35 @@ describe("GET / PATCH /admin/settings", () => {
     const res = await request("GET", "/admin/settings");
     expect(res.status).toBe(200);
     expect(siteSettingsSchema.parse(res.body)).toEqual(defaultSiteSettings);
-    expect(defaultSiteSettings).toEqual({ translationModel: "claude-sonnet-5-5", tagTranslationModel: "claude-sonnet-5-5" });
+    expect(defaultSiteSettings).toEqual({
+      translationModel: "claude-sonnet-5-5",
+      tagTranslationModel: "claude-sonnet-5-5",
+      coverPromptModel: "claude-sonnet-5-5",
+      coverImageModel: "gpt-image-2.5-flare",
+      coverImageQuality: "medium",
+      coverStyle: DEFAULT_COVER_STYLE,
+    });
   });
 
   it("updates only the keys given and returns the whole settings", async () => {
     const res = await request("PATCH", "/admin/settings", { body: { tagTranslationModel: "claude-haiku-5-5" } });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ translationModel: "claude-sonnet-5-5", tagTranslationModel: "claude-haiku-5-5" });
-    await request("PATCH", "/admin/settings", { body: { translationModel: "claude-opus-5-5" } });
-    expect((await request("GET", "/admin/settings")).body).toEqual({ translationModel: "claude-opus-5-5", tagTranslationModel: "claude-haiku-5-5" });
+    expect(res.body).toEqual({ ...defaultSiteSettings, tagTranslationModel: "claude-haiku-5-5" });
+    await request("PATCH", "/admin/settings", { body: { translationModel: "claude-opus-5-5", coverStyle: "  Flat pastel.\n" } });
+    expect((await request("GET", "/admin/settings")).body).toEqual({
+      ...defaultSiteSettings,
+      translationModel: "claude-opus-5-5",
+      tagTranslationModel: "claude-haiku-5-5",
+      // 风格去掉首尾空白再存
+      coverStyle: "Flat pastel.",
+    });
   });
 
   it.each([
     ["a model that is not on the list", { translationModel: "claude-sonnet-5" }],
     ["an unknown key", { theme: "dark" }],
+    ["an empty cover style", { coverStyle: "   " }],
+    ["an image quality that is not offered", { coverImageQuality: "max" }],
     ["nothing to update", {}],
   ])("rejects %s with 400", async (_name, body) => {
     const res = await request("PATCH", "/admin/settings", { body });
@@ -60,9 +86,10 @@ describe("GET / PATCH /admin/settings", () => {
     await db.insert(settings).values([
       { key: "translationModel", value: "claude-sonnet-4-5" },
       { key: "tagTranslationModel", value: "claude-haiku-5-5" },
+      { key: "coverStyle", value: 42 },
       { key: "removedSetting", value: { a: 1 } },
     ]);
-    expect((await request("GET", "/admin/settings")).body).toEqual({ translationModel: "claude-sonnet-5-5", tagTranslationModel: "claude-haiku-5-5" });
+    expect((await request("GET", "/admin/settings")).body).toEqual({ ...defaultSiteSettings, tagTranslationModel: "claude-haiku-5-5" });
   });
 
   it("requires a session and a same-origin request", async () => {
@@ -78,6 +105,7 @@ describe("GET /admin/status — everything configured", () => {
     withRedis: true,
     withStorage: true,
     translator,
+    coverImager,
     revalidateProbe: async () => {
       probes.push("probe");
       return { state: "ok", summary: "前端接受通知" };
@@ -93,8 +121,9 @@ describe("GET /admin/status — everything configured", () => {
 
   it("reports every dependency as working, without leaking any configuration value", async () => {
     verified.length = 0;
+    verifiedImageModels.length = 0;
     verifyImpl = async () => {};
-    await request("PATCH", "/admin/settings", { body: { tagTranslationModel: "claude-haiku-5-5" } });
+    await request("PATCH", "/admin/settings", { body: { tagTranslationModel: "claude-haiku-5-5", coverImageModel: "gpt-image-2.5-sunburst" } });
     const body = await status();
     expect(body.checks.map((c) => [c.id, c.state])).toEqual([
       ["database", "ok"],
@@ -102,14 +131,17 @@ describe("GET /admin/status — everything configured", () => {
       ["redis", "ok"],
       ["storage", "ok"],
       ["anthropic", "ok"],
+      ["openai", "ok"],
       ["github", "ok"],
       ["revalidate", "ok"],
       ["cron", "ok"],
     ]);
     expect(check(body, "migrations")?.summary).toMatch(/^已执行到 \d{4}_/);
-    expect(check(body, "anthropic")?.summary).toBe("密钥有效，模型可用：文章用 Sonnet 5.5，标签用 Haiku 5.5");
+    expect(check(body, "anthropic")?.summary).toBe("密钥有效，模型可用：文章用 Sonnet 5.5，标签用 Haiku 5.5，头图描述用 Sonnet 5.5");
+    expect(check(body, "openai")?.summary).toBe("密钥有效，GPT Image 2.5 Sunburst 可用");
     // 只检查设置里选中的模型，每个一次
     expect(verified).toEqual(["claude-sonnet-5-5", "claude-haiku-5-5"]);
+    expect(verifiedImageModels).toEqual(["gpt-image-2.5-sunburst"]);
     expect(probes).toHaveLength(1);
     expect(body.version).toBeNull();
     // 网络检查带耗时，只看配置的不带
@@ -172,7 +204,8 @@ describe("GET /admin/status — nothing optional configured", () => {
   it("marks unconfigured dependencies as off and says what is switched off", async () => {
     const body = systemStatusSchema.parse((await bare.request("GET", "/admin/status")).body);
     const states = Object.fromEntries(body.checks.map((c) => [c.id, c.state]));
-    expect(states).toEqual({ database: "ok", migrations: "ok", redis: "off", storage: "off", anthropic: "off", github: "ok", revalidate: "off", cron: "ok" });
+    expect(states).toEqual({ database: "ok", migrations: "ok", redis: "off", storage: "off", anthropic: "off", openai: "off", github: "ok", revalidate: "off", cron: "ok" });
+    expect(body.checks.find((c) => c.id === "openai")?.summary).toContain("OPENAI_API_KEY");
     expect(body.checks.find((c) => c.id === "anthropic")?.summary).toContain("ANTHROPIC_API_KEY");
     expect(body.checks.find((c) => c.id === "redis")?.latencyMs).toBeNull();
   });

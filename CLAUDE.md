@@ -92,11 +92,24 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 密钥、连接地址只放环境变量，不做进后台：数据库会进备份和导出，后台被攻破（XSS、session 泄露）时也能读出来；加密存库的话主密钥还得放环境变量；数据库地址这类本来就进不了数据库。后台只放不涉密、改了要马上生效的设置
 - 运行时设置：`settings` 表（一个键一行，值是 jsonb），格式由 shared 的 `siteSettingsSchema` 逐键校验，读到不合法的值（比如模型下架了）用默认值（`settingsFromRows`）。`GET / PATCH /admin/settings`，每次请求读一次，不缓存
   - 翻译模型：`translationModels`（shared，2026-10 按官方文档核对：Haiku 5.5 / Sonnet 5.5 / Opus 5.5 / Fable 5.1，接受同一套请求参数，只有 Haiku 没有服务端回退）。文章翻译、标签翻译各选一个（`translationModel` / `tagTranslationModel`），默认都是 Sonnet 5.5（和加设置之前一样）。设置页选了就保存
+  - 生成头图（见"生成头图"）：写画面描述的 Claude 模型、出图模型和画质（选了就保存）、头图风格（文本，按"保存"才存；没改过时用代码里的默认值，以后调整默认值自动跟上）
 - 状态页 `/admin/settings/status`（`GET /admin/status`）：只报告"配了没有、能不能用"，不返回任何配置值；每项检查独立、5 秒超时，一项挂住不影响其他项
-  - 数据库（`select 1`）、迁移（打包进来的 `drizzle/meta/_journal.json` 和库里 `drizzle.__drizzle_migrations` 比较，指出没执行的迁移）、Redis（PING）、图片存储（HEAD 一个不存在的对象：凭证对是 404）、Claude API（`GET /v1/models/{id}`，不花钱，检查设置里选的模型）、GitHub（只看配置）、缓存失效通知（向前端 `/hooks/revalidate` 发空的标签列表，检查两边的 `REVALIDATE_SECRET` 是否一致）、CRON_SECRET
+  - 数据库（`select 1`）、迁移（打包进来的 `drizzle/meta/_journal.json` 和库里 `drizzle.__drizzle_migrations` 比较，指出没执行的迁移）、Redis（PING）、图片存储（HEAD 一个不存在的对象：凭证对是 404）、Claude API（`GET /v1/models/{id}`，不花钱，检查设置里选的模型）、OpenAI（同样 `GET /v1/models/{id}`；列表里有模型不代表能出图，组织验证这类问题要第一次出图才知道）、GitHub（只看配置）、缓存失效通知（向前端 `/hooks/revalidate` 发空的标签列表，检查两边的 `REVALIDATE_SECRET` 是否一致）、CRON_SECRET
   - 定时任务：每次运行的结果记在 `job_runs`（每个任务一行，覆盖写，`recordJobRun`；失败时保留上次成功的时间），超过 26 小时没成功提示"注意"
   - 部署版本：前端（构建时的 `VERCEL_GIT_COMMIT_SHA`）和 API 的 `/health` 版本比较，不一致说明有一边还在部署或部署失败
   - 不自动轮询：每次检查都会连各个服务（包括 Anthropic）
+
+## 生成头图
+- 文章编辑器"头图"旁的"生成"（`CoverGenerator` 对话框），两步都由作者点按钮触发、可停止，结果只回给编辑器：
+  1. 画面描述：Claude 读表单里此刻的标题、标签、正文（前 1.2 万字，`COVER_SOURCE_MAX_CHARS`）和作者可选的"方向"，按头图风格写一段英文画面描述 + 一句原文语言的图片描述（alt）。`POST /admin/covers/brief`，结构化输出、effort medium、不用服务端回退（同标签名），算在 `rules.translate` 的额度里。作者可以改描述，也可以不用 Claude 自己写
+  2. 出图：OpenAI GPT Image（`openai` SDK，Image API）按"头图风格 + 画面描述"出一张 1536×864（16:9）的 WebP。`POST /admin/covers/generate` 返回 NDJSON 流：先等上游接受请求再开始流（内容审核拦下提示词 → 400，凭证 / 组织验证 → 502，上游限流 → 429，都还是普通 JSON 错误），之后 `partial`（`partial_images: 2` 的预览）、心跳 `ping`（`COVER_HEARTBEAT_MS`，和翻译共用 `nextWithHeartbeat`）、`done`（base64 图片 + 用量）或 `error`。出图可能一两分钟（文档），不流式的话代理等首字节可能超时
+- 为什么不在 Claude 里出图：Claude 只输出文字（可以写 SVG，但只适合几何图形）；为什么还要 Claude 这一步：图像模型擅长"画出描述的东西"，不擅长读长文想视觉比喻，而且作者先看到要画什么，不满意时不花出图的钱
+- 选中的那张由**浏览器**上传进媒体库（`uploadImage`，和手动上传同一条路：缩放、640 / 1280 版本、去元数据、预签名直传），alt 写进媒体库的描述，再设为头图（仍要保存文章才生效）。没选中的不进存储；API 不处理图片字节，也不用在服务端生成尺寸版本
+- 头图风格（设置，英文）：默认参考 YouTube 缩略图——一个大而清楚的主体、强对比、构图简单、重要内容在中间 3/4（列表卡片按 4:3 裁切）、图形化而非照片。**文字默认不放**，最多 1–3 个各语言都一样的短词（产品名、代码关键字、数字），绝不放中文、日文：头图三种语言共用（英文、日文页面和分享卡片是同一张图），而且图像模型仍会写错汉字
+- 模型：`coverImageModels`（shared 的 `cover-options.ts`，2026-10 按 OpenAI 文档和 SDK 类型核对：GPT Image 2.5 Flare（默认）/ Sunburst，token 单价相同：图像输出每百万 $30）；画质 low / medium（默认）/ high。每张图的 token 数没有公开表格，用量每次记日志、也显示在结果下面
+- 限流 `rules.coverImage`：按用户每小时 30 张，fail-closed；校验通过后、调用 OpenAI 前才计数。SDK 最多重试 1 次（一次出图就要一两分钟，默认 2 次可能超过函数时长）
+- 环境变量 `OPENAI_API_KEY`（API 项目，可选），同样需要 `REDIS_URL`；缺了 `GET /admin/covers/config` 报 `not_configured`、生成接口 503。两步互不依赖（只有 Anthropic 时可以写描述、只有 OpenAI 时可以自己写描述出图）。测试经 `createApp({ coverBriefWriter, coverImager })` 注入假实现，绝不调用真 API
+- 中止：OpenAI 的 SDK 把中止当成流正常结束（不抛错，和 Anthropic 的 SDK 不同），路由按 signal 判断是中止、不写 error
 
 ## 评论（v4c）
 - 评论者用 GitHub 登录（GitHub App，不申请任何权限，只读公开资料；一个 App 配本地和线上两个回调地址），与管理员的 Passkey 体系完全分开：
@@ -248,6 +261,7 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
   - 改标签 slug 时提示"旧网址会失效"，不做跳转
   - 做完先停下讨论，再做 v5 的其余部分
 - [x] 设置与状态页（见"设置与状态页"）：后台选择翻译模型（文章、标签各一个），系统状态页（上线前：Neon 执行迁移 0012，再部署 API）
+- [x] 生成头图（见"生成头图"）：Claude 写画面描述，OpenAI GPT Image 出图，作者挑一张进媒体库（不需要迁移：新设置是 settings 表里的新键。上线前：API 项目设 `OPENAI_API_KEY`；OpenAI 后台设每月花费上限，GPT Image 可能要求先完成组织验证；状态页多了 `openai` 一项，原生 App 若严格解码检查 id 要跟着加）
 - [ ] v5 工程化：Docker 镜像、VPS + Caddy 部署、pino 日志、Sentry、Playwright（端到端测试一开始就覆盖多语言）、按顺序部署（先 API、迁移，后前端）
 - [x] v5.5 大模型翻译（见"多语言"）：译文编辑页手动点击生成（Sonnet 5.5，分段流式、提示缓存），作者过目后保存；结构校验，未修改的机器译文记为 machine（上线前：API 项目设 `ANTHROPIC_API_KEY`（还要有 `REDIS_URL`），没设之前生成按钮是禁用的；Anthropic Console 设每月花费上限；首次部署后在函数详情里确认默认 Max Duration 是 300 秒（未核实的假设，见"函数时长与代理"）、长段落经 `/api` 代理不被掐断）
 - [x] 原生 App（独立仓库 `mikexxz-blog-apple`，SwiftUI，iPhone / iPad / Mac）：前台阅读 + 后台管理。后台登录走浏览器授权（见"安全"）。上线前：Neon 执行迁移 0013（`app_auth_codes`），先部署 API（`/auth/app/*`、Bearer、`translation-plan`），再部署前端（`/admin/authorize-app`）

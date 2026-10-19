@@ -1,26 +1,30 @@
 "use client";
 
 import type { PostCover } from "@blog/shared";
-import { CircleAlert, ImageIcon, X } from "lucide-react";
+import { CircleAlert, ImageIcon, Sparkles, X } from "lucide-react";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { coverFromImage } from "@/lib/post-form";
 import { thumbnailUrl } from "@/lib/media";
 import styles from "./CoverField.module.css";
+import { CoverGenerator, type CoverSource } from "./CoverGenerator";
 import { MediaPicker } from "./media/MediaPicker";
 
 type Props = {
   cover: PostCover | null;
   onChange: (cover: PostCover | null) => void;
   error?: string;
+  /** 表单里此刻的标题、正文等：生成头图时给 Claude 读 */
+  source: CoverSource;
 };
 
 /**
- * 头图（可选）：从媒体库里选一张，显示在文章页顶部、列表卡片上，也用作分享卡片。
+ * 头图（可选）：从媒体库里选一张，或者按文章生成一张（CoverGenerator），显示在文章页顶部、列表卡片上，也用作分享卡片。
  * 描述（alt）用媒体库里的，要改就去媒体库改——所有用到这张图的地方一起变。
  */
-export function CoverField({ cover, onChange, error }: Props) {
+export function CoverField({ cover, onChange, error, source }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [generatorOpen, setGeneratorOpen] = useState(false);
   const errorId = useId();
 
   return (
@@ -47,6 +51,10 @@ export function CoverField({ cover, onChange, error }: Props) {
             <Button variant="secondary" onClick={() => setPickerOpen(true)}>
               {cover ? "更换" : "选择头图"}
             </Button>
+            <Button variant="secondary" onClick={() => setGeneratorOpen(true)}>
+              <Sparkles aria-hidden="true" />
+              生成
+            </Button>
             {cover && (
               <Button variant="plain" onClick={() => onChange(null)}>
                 <X aria-hidden="true" />
@@ -62,6 +70,8 @@ export function CoverField({ cover, onChange, error }: Props) {
           {error}
         </p>
       )}
+      {/* 一直挂着：关掉对话框不丢已经生成的图 */}
+      <CoverGenerator open={generatorOpen} onClose={() => setGeneratorOpen(false)} source={source} onPick={onChange} />
       <MediaPicker open={pickerOpen} title="选择头图" onClose={() => setPickerOpen(false)} onPick={(image) => onChange(coverFromImage(image))} />
     </fieldset>
   );

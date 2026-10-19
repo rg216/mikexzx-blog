@@ -41,6 +41,11 @@ const envSchema = z.object({
    * 不校验格式：密钥格式由 Anthropic 决定，错了调用时会得到 401（接口返回 502 并记日志）
    */
   ANTHROPIC_API_KEY: z.string().optional(),
+  /**
+   * OpenAI API 的密钥（生成头图的出图那一步）。未设置（或没有 REDIS_URL）则后台的"生成图片"按钮禁用，其他功能照常。
+   * 同样不校验格式
+   */
+  OPENAI_API_KEY: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   /** Vercel 自动注入的系统变量：这次部署来自哪个提交。/health 返回它，部署后可以确认线上已经是新版本 */
   VERCEL_GIT_COMMIT_SHA: z.string().optional(),

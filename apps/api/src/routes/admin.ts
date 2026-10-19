@@ -15,6 +15,7 @@ import type { StatusDeps } from "../services/status.ts";
 import { adminCommentRoutes } from "./admin-comments.ts";
 import { adminSystemRoutes } from "./admin-system.ts";
 import { adminTagRoutes } from "./admin-tags.ts";
+import { type CoverDeps, coverRoutes } from "./covers.ts";
 import { imageRoutes, mediaFolderRoutes } from "./images.ts";
 import { type TranslationDeps, translateRoutes } from "./translate.ts";
 
@@ -29,6 +30,7 @@ export function adminRoutes(
   storage: ObjectStorage | null,
   github: GitHub | null,
   translation: TranslationDeps,
+  covers: CoverDeps,
   status: Omit<StatusDeps, "db">,
 ) {
   // 写操作按用户限流：正常编辑远远用不到，主要防脚本失控或 session 泄露后的批量破坏
@@ -91,6 +93,8 @@ export function adminRoutes(
     })
     // ---------- 大模型翻译（v5.5）：生成的译文只回给编辑器，保存仍走上面的 PUT ----------
     .route("/", translateRoutes(db, translation, limiter))
+    // ---------- 生成头图：结果只回给编辑器，选中的由浏览器上传进媒体库 ----------
+    .route("/covers", coverRoutes(db, covers, limiter))
     .route("/tags", adminTagRoutes(db, revalidate))
     .route("/images", imageRoutes(db, storage))
     .route("/media-folders", mediaFolderRoutes(db))

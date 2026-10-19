@@ -6,12 +6,14 @@ import {
   type StatusCheckId,
   type StatusState,
   type SystemStatus,
+  coverImageModelInfo,
   translationModelInfo,
 } from "@blog/shared";
 import { sql } from "drizzle-orm";
 import journal from "../../drizzle/meta/_journal.json" with { type: "json" };
 import type { Db } from "../db/client.ts";
 import type { RevalidateProbeResult } from "../lib/revalidate.ts";
+import { classifyImagerError, type CoverImager } from "../lib/cover-imager.ts";
 import { classifyTranslatorError, type Translator } from "../lib/translator.ts";
 import type { RedisProvider } from "../redis.ts";
 import type { ObjectStorage } from "../storage.ts";
@@ -31,6 +33,8 @@ export type StatusDeps = {
   githubConfigured: boolean;
   /** 配了 ANTHROPIC_API_KEY 就有（不管 Redis 在不在：状态页要分别说明两者） */
   translator: Translator | null;
+  /** 配了 OPENAI_API_KEY 就有（同样不管 Redis） */
+  coverImager: CoverImager | null;
   /** null：API 没有设置 REVALIDATE_SECRET */
   probeRevalidate: (() => Promise<RevalidateProbeResult>) | null;
   cronConfigured: boolean;
@@ -110,9 +114,9 @@ async function checkStorage(storage: ObjectStorage | null): Promise<CheckResult>
 }
 
 async function checkAnthropic(deps: StatusDeps, signal: AbortSignal): Promise<CheckResult> {
-  if (!deps.translator) return off("没有设置 ANTHROPIC_API_KEY：翻译功能关闭");
+  if (!deps.translator) return off("没有设置 ANTHROPIC_API_KEY：翻译、写头图描述的功能关闭");
   const settings = await getSettings(deps.db);
-  const models = [...new Set([settings.translationModel, settings.tagTranslationModel])];
+  const models = [...new Set([settings.translationModel, settings.tagTranslationModel, settings.coverPromptModel])];
   for (const model of models) {
     try {
       await deps.translator.verifyModel(model, { signal });
@@ -122,9 +126,25 @@ async function checkAnthropic(deps: StatusDeps, signal: AbortSignal): Promise<Ch
       return { state: "error", summary: `${translationModelInfo(model).name}：${failure.message}` };
     }
   }
-  const names = `文章用 ${translationModelInfo(settings.translationModel).name}，标签用 ${translationModelInfo(settings.tagTranslationModel).name}`;
+  const name = (model: typeof settings.translationModel) => translationModelInfo(model).name;
+  const names = `文章用 ${name(settings.translationModel)}，标签用 ${name(settings.tagTranslationModel)}，头图描述用 ${name(settings.coverPromptModel)}`;
   if (!deps.redis) return { state: "warning", summary: `密钥有效（${names}），但没有 REDIS_URL：翻译的限流需要 Redis，功能关闭` };
   return { state: "ok", summary: `密钥有效，模型可用：${names}` };
+}
+
+async function checkOpenAi(deps: StatusDeps, signal: AbortSignal): Promise<CheckResult> {
+  if (!deps.coverImager) return off("没有设置 OPENAI_API_KEY：生成头图时不能出图");
+  const { coverImageModel: model } = await getSettings(deps.db);
+  const name = coverImageModelInfo(model).name;
+  try {
+    await deps.coverImager.verifyModel(model, { signal });
+  } catch (error) {
+    console.error(`status check: image model ${model} not available`, error);
+    return { state: "error", summary: `${name}：${classifyImagerError(error).message}` };
+  }
+  if (!deps.redis) return { state: "warning", summary: `密钥有效（${name}），但没有 REDIS_URL：出图的限流需要 Redis，功能关闭` };
+  // 模型列表里有它不代表一定能出图：GPT Image 可能还要求组织验证，那要等第一次出图才知道
+  return { state: "ok", summary: `密钥有效，${name} 可用` };
 }
 
 async function checkRevalidate(probe: StatusDeps["probeRevalidate"]): Promise<CheckResult> {
@@ -172,6 +192,7 @@ export async function systemStatus(deps: StatusDeps): Promise<SystemStatus> {
       runCheck("redis", timeoutMs, () => checkRedis(deps.redis), Boolean(deps.redis)),
       runCheck("storage", timeoutMs, () => checkStorage(deps.storage), Boolean(deps.storage)),
       runCheck("anthropic", timeoutMs, (signal) => checkAnthropic(deps, signal), Boolean(deps.translator)),
+      runCheck("openai", timeoutMs, (signal) => checkOpenAi(deps, signal), Boolean(deps.coverImager)),
       runCheck("github", timeoutMs, async () => (deps.githubConfigured ? { state: "ok", summary: "已配置（不联网检查）" } : off("没有设置 GitHub App：评论区只读")), false),
       runCheck("revalidate", timeoutMs, () => checkRevalidate(deps.probeRevalidate), Boolean(deps.probeRevalidate)),
       runCheck("cron", timeoutMs, async () => checkCron(deps.cronConfigured), false),

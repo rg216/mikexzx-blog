@@ -19,6 +19,7 @@ import { stream } from "hono/streaming";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { HttpError } from "../lib/errors.ts";
+import { nextWithHeartbeat } from "../lib/heartbeat.ts";
 import { checkRateLimit, type RateLimiter, rules } from "../lib/rate-limit.ts";
 import { sourceHash } from "../lib/source-hash.ts";
 import {
@@ -60,8 +61,6 @@ function logUsage(entry: LogEntry) {
 
 const ndjson = (event: TranslationStreamEvent) => JSON.stringify(event);
 
-const PING = Symbol("ping");
-
 export type TranslationDeps = {
   /** null：没有配置（ANTHROPIC_API_KEY 或 REDIS_URL 没设） */
   translator: Translator | null;
@@ -72,7 +71,7 @@ export type TranslationDeps = {
 };
 
 /** 浏览器断开（关闭页面、点"停止"）时中止上游请求，不再计费 */
-function abortWithRequest(request: Request): AbortController {
+export function abortWithRequest(request: Request): AbortController {
   const controller = new AbortController();
   if (request.signal.aborted) controller.abort();
   else request.signal.addEventListener("abort", () => controller.abort(), { once: true });
@@ -208,33 +207,18 @@ export function translateRoutes(db: Db, { translator, limiterHealthy, heartbeatM
           // 浏览器断开时 Hono 会取消响应流
           out.onAbort(() => controller.abort());
 
-          /*
-           * 心跳：等下一个事件时，每隔 heartbeatMs 没有任何输出就写一行 ping。模型在第一段译文之前先思考，
-           * 可能几十秒一个字节都没有；浏览器经前端的 /api rewrite（Vercel 的外部 rewrite）到这个函数，
-           * 中间的代理可能把长时间没有数据的连接当成空闲连接断开。每个事件之后计时重新开始。
-           */
-          const nextWithHeartbeat = async (): Promise<IteratorResult<SegmentEvent>> => {
-            const pending = iterator.next();
-            for (;;) {
-              let timer: ReturnType<typeof setTimeout> | undefined;
-              const tick = new Promise<typeof PING>((resolve) => {
-                timer = setTimeout(() => resolve(PING), heartbeatMs);
-              });
-              try {
-                const winner = await Promise.race([pending, tick]);
-                if (winner !== PING) return winner;
-              } finally {
-                clearTimeout(timer);
-              }
+          // 心跳：模型在第一段译文之前先思考，可能几十秒没有输出（见 nextWithHeartbeat）
+          const next = () =>
+            nextWithHeartbeat(iterator, heartbeatMs, async () => {
               // 浏览器已经走了：不再写，等翻译器随中止结束
-              if (controller.signal.aborted || out.aborted) return pending;
+              if (controller.signal.aborted || out.aborted) return false;
               await out.writeln(ndjson({ type: "ping" }));
-            }
-          };
+              return true;
+            });
 
           let finished = false;
           try {
-            for (let result = first; !result.done; result = await nextWithHeartbeat()) {
+            for (let result = first; !result.done; result = await next()) {
               if (controller.signal.aborted) break;
               const event = result.value;
               if (event.type === "delta") {
