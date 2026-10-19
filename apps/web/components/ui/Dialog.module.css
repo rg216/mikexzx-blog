@@ -60,12 +60,17 @@
   overscroll-behavior: contain;
 }
 
+/* 有底栏时正文区底部少留一些：内容和底栏按钮之间是分隔线上下各 12，而不是 24 + 16 */
+.body:has(+ .footer) {
+  padding-bottom: var(--space-1-5);
+}
+
 .footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1-5) var(--space-3) var(--space-2);
   border-top: 0.5px solid var(--color-separator);
 }

@@ -261,7 +261,25 @@
   --color-button-destructive: #d70015; /* 白字 5.38:1 */
   --color-button-destructive-hover: #c4000f; /* 白字 6.26:1 */
 
-  /* 次要按钮的悬停底色（iOS secondarySystemFill）；次要按钮的字用 label 色，在任何底上都远超 4.5:1 */
+  /*
+   * 次要按钮：白底 + 浅灰描边，悬停时换成很浅的灰（apple.com 的 #F5F5F7）。字用 label 色：白底 21:1，悬停底 19.3:1。
+   * 不再用 iOS 的灰色 fill 底：它和按钮下的接触阴影搭在一起显得脏，白底 + 描边 + 阴影才像"贴在页面上的一块"。
+   */
+  --color-button-secondary: #ffffff;
+  --color-button-secondary-hover: #f5f5f7;
+  --color-button-secondary-border: rgb(0 0 0 / 0.1);
+  /* 实心按钮（主按钮、危险按钮）的描边：浅色模式下没有，深色模式下是淡白描边（见下） */
+  --color-button-solid-border: transparent;
+
+  /*
+   * 按钮的"平但有质感"：纯色填充，不用渐变；只加一层很浅、紧贴底边的接触阴影，
+   * 让按钮贴在页面上，而不是浮起来。悬停不加大阴影，按下去掉阴影（见 Button.module.css）。
+   * 圆角 8：支持超椭圆的浏览器里同样会乘 --corner-scale，看起来和别处的圆角一样圆。
+   */
+  --radius-button: calc(0.5rem * var(--corner-scale)); /* 8 */
+  --shadow-button: 0 1px 2px rgb(0 0 0 / 0.08);
+
+  /* 悬停底色（iOS secondarySystemFill）：标签、搜索页的筛选按钮等 fill 底的控件用 */
   --color-fill-hover: rgb(120 120 128 / 0.2);
 
   /* 危险/错误文字：白底 5.38:1，#f2f2f7 底 4.83:1，fill 底 4.68:1 */
@@ -309,6 +327,15 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --color-fill-hover: rgb(120 120 128 / 0.32);
+    /*
+     * 深色背景上阴影基本看不见：改用比背景稍亮的表面色（#2C2C2E，比卡片、对话框的 #1C1C1E 亮一级）、
+     * 淡白描边勾出边界，加一道很淡的顶部高光代替阴影。白字：表面色 13.9:1，悬停的 #3A3A3C 11.4:1
+     */
+    --color-button-secondary: #2c2c2e;
+    --color-button-secondary-hover: #3a3a3c;
+    --color-button-secondary-border: rgb(255 255 255 / 0.1);
+    --color-button-solid-border: rgb(255 255 255 / 0.1);
+    --shadow-button: inset 0 1px 0 rgb(255 255 255 / 0.05);
     --color-destructive-text: #ff6961; /* 黑底 7.45:1，#1c1c1e 底 6.03:1，fill 底 4.52:1 */
     --color-destructive-fill: rgb(255 69 58 / 0.2); /* #ff6961 在此底上 6.17:1（叠在黑底）/ 4.75:1（叠在 #1c1c1e） */
     --color-success-text: #30d158; /* 淡绿底（叠在黑底上）7.70:1，叠在 #1c1c1e 上 5.67:1 */

@@ -45,21 +45,17 @@
   margin-top: var(--space-2);
 }
 
+/* 设置表单是普通块级排版（不在卡片的 gap 里）：输入框组下方留 16 给按钮，和登录时按钮上方的卡片 gap 一样 */
 .fields {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-block: var(--space-3);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
 .wide {
   width: 100%;
-  margin-top: var(--space-3);
-}
-
-/* 表单里第一个按钮紧跟输入框，不再额外留白 */
-.fields + .wide {
-  margin-top: 0;
 }
 
 .switch {
