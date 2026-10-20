@@ -23,6 +23,11 @@
   min-width: 0;
 }
 
+/* 输入框旁边的按钮（"从标题生成"之类）和单行输入框一样高：按钮本身是紧凑的 32，并排时高低不齐 */
+.row > :not(.control) {
+  min-height: var(--hit-target);
+}
+
 .control {
   width: 100%;
   min-height: var(--hit-target);

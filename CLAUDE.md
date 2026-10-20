@@ -209,10 +209,10 @@ Bun workspace monorepo（Bun 只做包管理器和脚本运行器；运行时统
 - 断点用 rem：md 46rem（≈736px）、lg 70rem（≈1120px，出现侧栏、文章标题 48px）
 - 图文混排：单独成段的图片渲染为 `<figure>`（title 作图注），桌面比正文宽、手机贴满屏幕两侧
 - 毛玻璃（`backdrop-filter`）只用于导航栏和浮层，正文区保持干净
-- 按钮（`components/ui/Button`）"平但有质感"：纯色填充、圆角 8、一层紧贴的接触阴影（`--shadow-button`），不用渐变和大阴影；次按钮白底 + 浅灰描边；悬停只把底色调深，按下去掉阴影；焦点环用 outline（box-shadow 会顶掉阴影）；深色模式改用稍亮的表面色 + 淡白描边 + 顶部淡高光。按钮组和上方内容之间 12–16（容器有统一 gap 时跟随 gap，不再给按钮额外加 margin）
+- 按钮（`components/ui/Button`）学 Notion 的紧凑按钮，"平但有质感"：小圆角 6、高 32（`--button-height`；有触屏的设备 `any-pointer: coarse` 上仍是 44），纯色填充、一层紧贴的接触阴影（`--shadow-button`），不用渐变和大阴影；次按钮白底 + 浅灰描边；悬停只把底色调深，按下去掉阴影；焦点环用 outline（box-shadow 会顶掉阴影）；深色模式改用稍亮的表面色 + 淡白描边 + 顶部淡高光。输入框旁边的按钮和输入框一样高（44）。按钮组和上方内容之间 12（容器有统一 gap 时跟随 gap，不再给按钮额外加 margin）
 - 圆角用 G2 连续曲线：`globals.css` 在 `@supports (corner-shape: squircle)` 里给所有元素 `corner-shape: squircle`，并把圆角 token 放大 1.8 倍（`--corner-scale`，超椭圆同样半径看起来更尖）；不支持的浏览器（2026-10：Safari、Firefox 只在预览版）照旧画圆弧。正圆（头像）、胶囊写 `corner-shape: round` 覆盖
 - 动效用 spring 曲线，尊重 `prefers-reduced-motion`
-- 可点击区域 ≥ 44×44px，焦点样式可见，语义化 HTML，对比度达标
+- 可点击区域 ≥ 44×44px（例外：用鼠标时按钮是 32 高，WCAG 2.2 AA 的下限是 24；触屏设备上仍是 44），焦点样式可见，语义化 HTML，对比度达标
 
 ## 数据模型（初稿）
 - `users`（单管理员）、`passkeys`、`sessions`、`auth_challenges`、`app_auth_codes`（原生 App 登录的一次性授权码）

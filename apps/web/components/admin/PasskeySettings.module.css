@@ -111,7 +111,9 @@
 }
 
 /* 按钮和输入框顶部对齐：跳过 label 的高度 */
+/* 和左边的输入框顶端、高度都对齐（跳过输入框上方的标签） */
 .addButton {
+  min-height: var(--hit-target);
   margin-top: calc(var(--font-size-subhead) * var(--line-height-body) + var(--space-0-5));
 }
 

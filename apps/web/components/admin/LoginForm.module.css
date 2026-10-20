@@ -3,7 +3,7 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: var(--space-2);
+  gap: var(--space-1-5);
   width: 100%;
   max-width: var(--login-card-width);
   margin-inline: auto;
@@ -24,8 +24,9 @@
   font-weight: var(--font-weight-bold);
 }
 
+/* 标题和说明之间仍是 24（卡片的 gap 12 + 这里 12） */
 .description {
-  margin-top: var(--space-1);
+  margin-top: var(--space-1-5);
   color: var(--color-secondary-label);
   font-size: var(--font-size-subhead);
   line-height: var(--line-height-body);
@@ -45,13 +46,13 @@
   margin-top: var(--space-2);
 }
 
-/* 设置表单是普通块级排版（不在卡片的 gap 里）：输入框组下方留 16 给按钮，和登录时按钮上方的卡片 gap 一样 */
+/* 设置表单是普通块级排版（不在卡片的 gap 里）：输入框组下方留 12 给按钮，和登录时按钮上方的卡片 gap 一样 */
 .fields {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-3);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1-5);
 }
 
 .wide {

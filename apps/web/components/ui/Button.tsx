@@ -14,7 +14,7 @@ export type ButtonVariant = "primary" | "secondary" | "destructive" | "plain" | 
 
 type StyleProps = {
   variant?: ButtonVariant;
-  /** 只有图标、没有文字：做成 44×44 的正方形。此时必须提供 aria-label。 */
+  /** 只有图标、没有文字：做成按钮高度的正方形（鼠标 32、触屏 44）。此时必须提供 aria-label。 */
   iconOnly?: boolean;
 };
 
